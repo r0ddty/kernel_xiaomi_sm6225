@@ -1,7 +1,7 @@
 export TZ='Europe/Kyiv'
 
 KERNNAME="Andromeda"
-KERNVER="Checkmate"
+KERNVER="Pawn"
 BUILDDATE=$(date +%Y%m%d)
 # BUILDTIME=$(date +%H%M)
 GREEN='\033[0;32m'
