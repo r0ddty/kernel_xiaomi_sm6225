@@ -197,13 +197,13 @@
  * ESD check & protection
  * default: disable
  */
-#define FTS_ESDCHECK_EN                         1
+#define FTS_ESDCHECK_EN                         0
 
 /*
  * Production test enable
  * 1: enable, 0:disable(default)
  */
-#define FTS_TEST_EN                             1
+#define FTS_TEST_EN                             0
 
 /*
  * Pinctrl enable
@@ -239,7 +239,7 @@
 /*
  * enable tp usb plugin feature
  */
-#define LCT_TP_USB_PLUGIN                       1
+#define LCT_TP_USB_PLUGIN                       0
 
 /*
  * module_id: mean vendor_id generally, also maybe gpio or lcm_id...

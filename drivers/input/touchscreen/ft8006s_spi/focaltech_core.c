@@ -70,8 +70,6 @@ extern touchscreen_usb_plugin_data_t g_touchscreen_usb_pulgin;
 * Global variable or extern global variabls/functions
 *****************************************************************************/
 struct fts_ts_data *fts_data;
-static bool delay_gesture = false;
-static bool g_regulator_status;
 
 #if LCT_TP_USB_PLUGIN
 void fts_ts_usb_event_callback(void)
@@ -746,7 +744,7 @@ static irqreturn_t fts_irq_handler(int irq, void *data)
     int ret = 0;
     struct fts_ts_data *ts_data = fts_data;
 
-    if ((ts_data->pm_suspend) && (ts_data->gesture_mode)) {
+    if ((ts_data->gesture_mode) && (ts_data->pm_suspend)) {
         ret = wait_for_completion_timeout(
                   &ts_data->pm_completion,
                   msecs_to_jiffies(FTS_TIMEOUT_COMERR_PM));
@@ -1304,11 +1302,18 @@ static void fts_resume_work(struct work_struct *work)
     fts_ts_resume(ts_data->dev);
 }
 
+static void fts_suspend_work(struct work_struct *work)
+{
+    struct fts_ts_data *ts_data = container_of(work, struct fts_ts_data,
+                    suspend_work);
+ 
+    fts_ts_suspend(ts_data->dev);
+}
+
 static int drm_notifier_callback(struct notifier_block *self,
                                  unsigned long event, void *data)
 {
     struct drm_notify_data *evdata = data;
-    struct fts_ts_data *ts_data = container_of(self, struct fts_ts_data, drm_notif);
     int *blank = NULL;
     
     if (!evdata) {
@@ -1334,8 +1339,7 @@ static int drm_notifier_callback(struct notifier_block *self,
         break;
     case DRM_BLANK_POWERDOWN:
         if (DRM_EARLY_EVENT_BLANK == event) {
-            cancel_work_sync(&fts_data->resume_work);
-            fts_ts_suspend(ts_data->dev);
+            queue_work(fts_data->ts_workqueue, &fts_data->suspend_work);
         } else if (DRM_EVENT_BLANK == event) {
             FTS_DEBUG("suspend: event = %lu, not care\n", event);
         }
@@ -1468,6 +1472,7 @@ static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
 
     if (ts_data->ts_workqueue) {
         INIT_WORK(&ts_data->resume_work, fts_resume_work);
+        INIT_WORK(&ts_data->suspend_work, fts_suspend_work);
     }
 
 #if defined(CONFIG_PM) && FTS_PATCH_COMERR_PM
@@ -1482,25 +1487,12 @@ static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
         FTS_ERROR("Unable to register drm_notifier: %d\n", ret);
     }
 
-	if (ts_data->fts_tp_class == NULL) {
-		if (ts_data->fts_tp_class) {
-			ts_data->fts_touch_dev = device_create(ts_data->fts_tp_class, NULL, 0x38, ts_data, "tp_dev");
-			if (IS_ERR(ts_data->fts_touch_dev)) {
-				FTS_ERROR("Failed to create device !");
-				goto err_class_create;
-			}
-			dev_set_drvdata(ts_data->fts_touch_dev, ts_data);
-		}
-	}
 #if LCT_TP_USB_PLUGIN
 	g_touchscreen_usb_pulgin.event_callback = fts_ts_usb_event_callback;
 #endif
 
     FTS_FUNC_EXIT();
     return 0;
-err_class_create:
-	class_destroy(ts_data->fts_tp_class);
-	ts_data->fts_tp_class = NULL;
 
 err_irq_req:
 #if FTS_POWER_SOURCE_CUST_EN
@@ -1616,8 +1608,6 @@ static int fts_ts_suspend(struct device *dev)
             }
 #endif
         }
-        /* touch reset gpio pull down */
-        gpio_direction_output(fts_data->pdata->reset_gpio, 0 );
     }
 
     fts_release_all_finger();
@@ -1635,10 +1625,6 @@ static int fts_ts_resume(struct device *dev)
         FTS_DEBUG("Already in awake state");
         return 0;
     }
-
-    /* if gesture_mode enabled, touch reset gpio pull up */
-    if (!ts_data->gesture_mode)
-        gpio_direction_output(fts_data->pdata->reset_gpio, 1 );
 
     fts_release_all_finger();
 
@@ -1662,10 +1648,6 @@ static int fts_ts_resume(struct device *dev)
     }
 
     ts_data->suspended = false;
-
-    if (delay_gesture) {
-        delay_gesture = false;
-    }
 
 	fts_irq_enable();
 
@@ -1712,7 +1694,6 @@ static int fts_ts_probe(struct spi_device *spi)
 {
     int ret = 0;
     struct fts_ts_data *ts_data = NULL;
-    delay_gesture = false;
 
     FTS_INFO("Touch Screen(SPI BUS) driver prboe...");
     spi->mode = SPI_MODE_0;
