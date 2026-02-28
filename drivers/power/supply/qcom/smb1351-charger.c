@@ -580,7 +580,7 @@ static void smb1351_check_bms_psy(struct smb1351_charger *chip)
 	if (chip->bms_psy == NULL) {
 		chip->bms_psy = power_supply_get_by_name("bms");
 		if (chip->bms_psy == NULL) {
-			pr_err("%s : fail to get bms psy\n", __func__);
+			pr_debug("%s : fail to get bms psy\n", __func__);
 		}
 	}
 }
@@ -592,7 +592,7 @@ static int smb1351_read_reg(struct smb1351_charger *chip, int reg, u8 *val)
 	pm_stay_awake(chip->dev);
 	ret = i2c_smbus_read_byte_data(chip->client, reg);
 	if (ret < 0) {
-		pr_err("i2c read fail: can't read from %02x: %d\n", reg, ret);
+		pr_debug("i2c read fail: can't read from %02x: %d\n", reg, ret);
 		pm_relax(chip->dev);
 		return ret;
 	}
@@ -600,7 +600,7 @@ static int smb1351_read_reg(struct smb1351_charger *chip, int reg, u8 *val)
 	*val = ret;
 
 	pm_relax(chip->dev);
-	pr_err("Reading 0x%02x=0x%02x\n", reg, *val);
+	pr_debug("Reading 0x%02x=0x%02x\n", reg, *val);
 	return 0;
 }
 
@@ -611,13 +611,13 @@ static int smb1351_write_reg(struct smb1351_charger *chip, int reg, u8 val)
 	pm_stay_awake(chip->dev);
 	ret = i2c_smbus_write_byte_data(chip->client, reg, val);
 	if (ret < 0) {
-		pr_err("i2c write fail: can't write %02x to %02x: %d\n",
+		pr_debug("i2c write fail: can't write %02x to %02x: %d\n",
 			val, reg, ret);
 		pm_relax(chip->dev);
 		return ret;
 	}
 	pm_relax(chip->dev);
-	pr_err("Writing 0x%02x=0x%02x\n", reg, val);
+	pr_debug("Writing 0x%02x=0x%02x\n", reg, val);
 	return 0;
 }
 
@@ -629,14 +629,14 @@ static int smb1351_masked_write(struct smb1351_charger *chip, int reg,
 
 	rc = smb1351_read_reg(chip, reg, &temp);
 	if (rc) {
-		pr_err("read failed: reg=%03X, rc=%d\n", reg, rc);
+		pr_debug("read failed: reg=%03X, rc=%d\n", reg, rc);
 		return rc;
 	}
 	temp &= ~mask;
 	temp |= val & mask;
 	rc = smb1351_write_reg(chip, reg, temp);
 	if (rc) {
-		pr_err("write failed: reg=%03X, rc=%d\n", reg, rc);
+		pr_debug("write failed: reg=%03X, rc=%d\n", reg, rc);
 		return rc;
 	}
 	return 0;
@@ -659,7 +659,7 @@ static int smb1351_enable_volatile_writes(struct smb1351_charger *chip)
 	rc = smb1351_masked_write(chip, CMD_I2C_REG, CMD_BQ_CFG_ACCESS_BIT,
 							CMD_BQ_CFG_ACCESS_BIT);
 	if (rc)
-		pr_err("Couldn't write CMD_BQ_CFG_ACCESS_BIT rc=%d\n", rc);
+		pr_debug("Couldn't write CMD_BQ_CFG_ACCESS_BIT rc=%d\n", rc);
 
 	return rc;
 }
@@ -697,7 +697,7 @@ static int smb1351_get_quick_charge_type(struct smb1351_charger *chip)
 	if (chip->usb_psy ==NULL) {
 		chip->usb_psy = power_supply_get_by_name("usb");
 		if (chip->usb_psy == NULL) {
-			pr_err("%s : fail to get usb psy\n", __func__);
+			pr_debug("%s : fail to get usb psy\n", __func__);
 			return -ENODEV;
 		}
 	}
@@ -705,7 +705,7 @@ static int smb1351_get_quick_charge_type(struct smb1351_charger *chip)
 	ret = power_supply_get_property(chip->usb_psy,
 				POWER_SUPPLY_PROP_REAL_TYPE, &prop);
 	if (ret < 0) {
-		pr_err("couldn't read usb real type, ret=%d\n", ret);
+		pr_debug("couldn't read usb real type, ret=%d\n", ret);
 		return -EINVAL;
 	}
 	
@@ -731,7 +731,7 @@ static int smb1351_request_dpdm(struct smb1351_charger *chip, bool enable)
 		chip->dpdm_reg = devm_regulator_get(chip->dev, "dpdm");
 		if (IS_ERR(chip->dpdm_reg)) {
 			rc = PTR_ERR(chip->dpdm_reg);
-			pr_err("Couldn't get dpdm regulator rc=%d\n",
+			pr_debug("Couldn't get dpdm regulator rc=%d\n",
 					rc);
 			chip->dpdm_reg = NULL;
 			return rc;
@@ -740,18 +740,18 @@ static int smb1351_request_dpdm(struct smb1351_charger *chip, bool enable)
 
 	if (enable) {
 		if (chip->dpdm_reg && !regulator_is_enabled(chip->dpdm_reg)) {
-			pr_err("enabling DPDM regulator\n");
+			pr_debug("enabling DPDM regulator\n");
 			rc = regulator_enable(chip->dpdm_reg);
 			if (rc < 0)
-				pr_err("Couldn't enable dpdm regulator rc=%d\n",
+				pr_debug("Couldn't enable dpdm regulator rc=%d\n",
 					rc);
 		}
 	} else {
 		if (chip->dpdm_reg && regulator_is_enabled(chip->dpdm_reg)) {
-			pr_err("disabling DPDM regulator\n");
+			pr_debug("disabling DPDM regulator\n");
 			rc = regulator_disable(chip->dpdm_reg);
 			if (rc < 0)
-				pr_err("Couldn't disable dpdm regulator rc=%d\n",
+				pr_debug("Couldn't disable dpdm regulator rc=%d\n",
 					rc);
 		}
 	}
@@ -767,7 +767,7 @@ static int smb1351_usb_suspend(struct smb1351_charger *chip, int reason,
 
 	suspended = chip->usb_suspended_status;
 
-	pr_err("reason = %d requested_suspend = %d suspended_status = %d\n",
+	pr_debug("reason = %d requested_suspend = %d suspended_status = %d\n",
 						reason, suspend, suspended);
 
 	if (!suspend)
@@ -775,13 +775,13 @@ static int smb1351_usb_suspend(struct smb1351_charger *chip, int reason,
 	else
 		suspended |= reason;
 
-	pr_err("new suspended_status = %d\n", suspended);
+	pr_debug("new suspended_status = %d\n", suspended);
 
 	rc = smb1351_masked_write(chip, CMD_INPUT_LIMIT_REG,
 				CMD_SUSPEND_MODE_BIT,
 				suspended ? CMD_SUSPEND_MODE_BIT : 0);
 	if (rc)
-		pr_err("Couldn't suspend rc = %d\n", rc);
+		pr_debug("Couldn't suspend rc = %d\n", rc);
 	else
 		chip->usb_suspended_status = suspended;
 
@@ -795,25 +795,25 @@ static int smb1351_battchg_disable(struct smb1351_charger *chip,
 	int disabled;
 
 	if (chip->chg_autonomous_mode) {
-		pr_err("Charger in autonomous mode\n");
+		pr_debug("Charger in autonomous mode\n");
 		return 0;
 	}
 
 	disabled = chip->battchg_disabled_status;
 
-	pr_err("reason = %d requested_disable = %d disabled_status = %d\n",
+	pr_debug("reason = %d requested_disable = %d disabled_status = %d\n",
 						reason, disable, disabled);
 	if (disable == true)
 		disabled |= reason;
 	else
 		disabled &= ~reason;
 
-	pr_err("new disabled_status = %d\n", disabled);
+	pr_debug("new disabled_status = %d\n", disabled);
 
 	rc = smb1351_masked_write(chip, CMD_CHG_REG, CMD_CHG_EN_BIT,
 					disabled ? 0 : CMD_CHG_ENABLE);
 	if (rc)
-		pr_err("Couldn't %s charging rc=%d\n",
+		pr_debug("Couldn't %s charging rc=%d\n",
 					disable ? "disable" : "enable", rc);
 	else
 		chip->battchg_disabled_status = disabled;
@@ -830,7 +830,7 @@ static int smb1351_fastchg_current_set(struct smb1351_charger *chip,
 
 	if ((fastchg_current < SMB1351_CHG_PRE_MIN_MA) ||
 		(fastchg_current > SMB1351_CHG_FAST_MAX_MA)) {
-		pr_err("bad pre_fastchg current mA=%d asked to set\n",
+		pr_debug("bad pre_fastchg current mA=%d asked to set\n",
 					fastchg_current);
 		return -EINVAL;
 	}
@@ -841,7 +841,7 @@ static int smb1351_fastchg_current_set(struct smb1351_charger *chip,
 	 */
 	if (fastchg_current < SMB1351_CHG_FAST_MIN_MA) {
 		is_pre_chg = true;
-		pr_err("is_pre_chg true, current is %d\n", fastchg_current);
+		pr_debug("is_pre_chg true, current is %d\n", fastchg_current);
 	}
 
 	if (is_pre_chg) {
@@ -853,14 +853,14 @@ static int smb1351_fastchg_current_set(struct smb1351_charger *chip,
 		if (i < 0)
 			i = 0;
 		chip->fastchg_current_max_ma = pre_chg_current[i];
-		pr_err("prechg setting %02x\n", i);
+		pr_debug("prechg setting %02x\n", i);
 
 		i = i << SMB1351_CHG_PRE_SHIFT;
 
 		rc = smb1351_masked_write(chip, CHG_OTH_CURRENT_CTRL_REG,
 				PRECHG_CURRENT_MASK, i);
 		if (rc)
-			pr_err("Couldn't write CHG_OTH_CURRENT_CTRL_REG rc=%d\n",
+			pr_debug("Couldn't write CHG_OTH_CURRENT_CTRL_REG rc=%d\n",
 									rc);
 
 		return smb1351_masked_write(chip, VARIOUS_FUNC_2_REG,
@@ -883,14 +883,14 @@ static int smb1351_fastchg_current_set(struct smb1351_charger *chip,
 		chip->fastchg_current_max_ma = fast_chg_current[i];
 
 		i = i << SMB1351_CHG_FAST_SHIFT;
-		pr_err("fastchg limit=%d setting %02x\n",
+		pr_debug("fastchg limit=%d setting %02x\n",
 					chip->fastchg_current_max_ma, i);
 
 		/* make sure pre chg mode is disabled */
 		rc = smb1351_masked_write(chip, VARIOUS_FUNC_2_REG,
 					PRECHG_TO_FASTCHG_BIT, 0);
 		if (rc)
-			pr_err("Couldn't write VARIOUS_FUNC_2_REG rc=%d\n", rc);
+			pr_debug("Couldn't write VARIOUS_FUNC_2_REG rc=%d\n", rc);
 
 		return smb1351_masked_write(chip, CHG_CURRENT_CTRL_REG,
 					FAST_CHG_CURRENT_MASK, i);
@@ -907,7 +907,7 @@ static int smb1351_float_voltage_set(struct smb1351_charger *chip,
 	u8 temp;
 
 	if ((vfloat_mv < MIN_FLOAT_MV) || (vfloat_mv > MAX_FLOAT_MV)) {
-		pr_err("bad float voltage mv =%d asked to set\n", vfloat_mv);
+		pr_debug("bad float voltage mv =%d asked to set\n", vfloat_mv);
 		return -EINVAL;
 	}
 
@@ -937,14 +937,14 @@ static int smb1351_iterm_set(struct smb1351_charger *chip, int iterm_ma)
 	rc = smb1351_masked_write(chip, CHG_OTH_CURRENT_CTRL_REG,
 				ITERM_MASK, reg);
 	if (rc) {
-		pr_err("Couldn't set iterm rc = %d\n", rc);
+		pr_debug("Couldn't set iterm rc = %d\n", rc);
 		return rc;
 	}
 	/* enable the iterm */
 	rc = smb1351_masked_write(chip, CHG_CTRL_REG,
 				ITERM_EN_BIT, ITERM_ENABLE);
 	if (rc) {
-		pr_err("Couldn't enable iterm rc = %d\n", rc);
+		pr_debug("Couldn't enable iterm rc = %d\n", rc);
 		return rc;
 	}
 	return 0;
@@ -958,7 +958,7 @@ static int smb1351_chg_otg_regulator_enable(struct regulator_dev *rdev)
 	rc = smb1351_masked_write(chip, CMD_CHG_REG, CMD_OTG_EN_BIT,
 							CMD_OTG_EN_BIT);
 	if (rc)
-		pr_err("Couldn't enable  OTG mode rc=%d\n", rc);
+		pr_debug("Couldn't enable  OTG mode rc=%d\n", rc);
 	return rc;
 }
 
@@ -969,7 +969,7 @@ static int smb1351_chg_otg_regulator_disable(struct regulator_dev *rdev)
 
 	rc = smb1351_masked_write(chip, CMD_CHG_REG, CMD_OTG_EN_BIT, 0);
 	if (rc)
-		pr_err("Couldn't disable OTG mode rc=%d\n", rc);
+		pr_debug("Couldn't disable OTG mode rc=%d\n", rc);
 	return rc;
 }
 
@@ -981,7 +981,7 @@ static int smb1351_chg_otg_regulator_is_enable(struct regulator_dev *rdev)
 
 	rc = smb1351_read_reg(chip, CMD_CHG_REG, &reg);
 	if (rc) {
-		pr_err("Couldn't read OTG enable bit rc=%d\n", rc);
+		pr_debug("Couldn't read OTG enable bit rc=%d\n", rc);
 		return rc;
 	}
 
@@ -1011,7 +1011,7 @@ static int smb1351_regulator_init(struct smb1351_charger *chip)
 	init_data = of_get_regulator_init_data(chip->dev, chip->dev->of_node,
 					&chip->otg_vreg.rdesc);
 	if (!init_data) {
-		pr_err("regulator init data is missing\n");
+		pr_debug("regulator init data is missing\n");
 		return -EINVAL;
 	}
 
@@ -1026,7 +1026,7 @@ static int smb1351_regulator_init(struct smb1351_charger *chip)
 		rc = PTR_ERR(chip->otg_vreg.rdev);
 		chip->otg_vreg.rdev = NULL;
 		if (rc != -EPROBE_DEFER)
-			pr_err("OTG reg failed, rc=%d\n", rc);
+			pr_debug("OTG reg failed, rc=%d\n", rc);
 	}
 	return rc;
 }
@@ -1039,7 +1039,7 @@ static int smb_chip_get_version(struct smb1351_charger *chip)
 	if (chip->version == SMB_UNKNOWN) {
 		rc = smb1351_read_reg(chip, VERSION_REG, &ver);
 		if (rc) {
-			pr_err("Couldn't read version rc=%d\n", rc);
+			pr_debug("Couldn't read version rc=%d\n", rc);
 			return rc;
 		}
 
@@ -1062,18 +1062,18 @@ static int smb1351_enable_hvdcp(struct smb1351_charger *chip)
 	rc = smb1351_masked_write(chip, HVDCP_BATT_MISSING_CTRL_REG,
 			HVDCP_EN_BIT, HVDCP_EN_BIT);
 	if (rc)
-		pr_err( "SMB1351_LK Couldn't write hvdcp en rc=%d\n", rc);
+		pr_debug( "SMB1351_LK Couldn't write hvdcp en rc=%d\n", rc);
 
 	*/
 	rc = smb1351_masked_write(chip, OTG_MODE_POWER_OPTIONS_REG,
 			MAP_HVDCP_BIT, HVDCP_EN_BIT);
 	if (rc)
-		pr_err("SMB1351_LK Couldn't write hvdcp adapter rc=%d\n", rc);
+		pr_debug("SMB1351_LK Couldn't write hvdcp adapter rc=%d\n", rc);
 
 	rc = smb1351_masked_write(chip, STATUS_1_REG,
 				STATUS_INPUT_CHARGE_5_9_BIT, STATUS_INPUT_CHARGE_5_9_BIT);
 		if (rc)
-			pr_err("SMB1351_LK Couldn't write hvdcp input voltage rc=%d\n", rc);
+			pr_debug("SMB1351_LK Couldn't write hvdcp input voltage rc=%d\n", rc);
 
 	//chg_type = smb1351_get_chr_type();
 	return rc;
@@ -1089,7 +1089,7 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 		chip->smb_pinctrl = pinctrl_get_select(chip->dev,
 						chip->pinctrl_state_name);
 		if (IS_ERR(chip->smb_pinctrl)) {
-			pr_err("Could not get/set %s pinctrl state rc = %ld\n",
+			pr_debug("Could not get/set %s pinctrl state rc = %ld\n",
 						chip->pinctrl_state_name,
 						PTR_ERR(chip->smb_pinctrl));
 			return PTR_ERR(chip->smb_pinctrl);
@@ -1101,19 +1101,19 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 	 * do not apply additional settings
 	 */
 	if (chip->chg_autonomous_mode) {
-		pr_err("Charger configured for autonomous mode\n");
+		pr_debug("Charger configured for autonomous mode\n");
 		return 0;
 	}
 
 	rc = smb_chip_get_version(chip);
 	if (rc) {
-		pr_err("Couldn't get version rc = %d\n", rc);
+		pr_debug("Couldn't get version rc = %d\n", rc);
 		return rc;
 	}
 
 	rc = smb1351_enable_volatile_writes(chip);
 	if (rc) {
-		pr_err("Couldn't configure volatile writes rc=%d\n", rc);
+		pr_debug("Couldn't configure volatile writes rc=%d\n", rc);
 		return rc;
 	}
 
@@ -1121,14 +1121,14 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 	rc = smb1351_masked_write(chip, WDOG_SAFETY_TIMER_CTRL_REG,
 				WDOG_TIMER_EN_BIT, 0);
 	if (rc) {
-		pr_err("Couldn't disable watchdog rc = %d\n", rc);
+		pr_debug("Couldn't disable watchdog rc = %d\n", rc);
 		return rc;
 	}
 
 	/* enable/disable charging by suspending usb */
 	rc = smb1351_usb_suspend(chip, USER, chip->usb_suspended_status);
 	if (rc) {
-		pr_err("Unable to %ssuspend usb. rc=%d\n",
+		pr_debug("Unable to %ssuspend usb. rc=%d\n",
 			chip->usb_suspended_status ? "" : "un-", rc);
 		return rc;
 	}
@@ -1136,7 +1136,7 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 	/* enable/disable battery charging */
 	rc = smb1351_battchg_disable(chip, USER, chip->battchg_disabled_status);
 	if (rc) {
-		pr_err("Unable to %s battery charging. rc=%d\n",
+		pr_debug("Unable to %s battery charging. rc=%d\n",
 			chip->battchg_disabled_status ? "disable" : "enable",
 									rc);
 		return rc;
@@ -1153,7 +1153,7 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 								mask, reg);
 
 	if (rc) {
-		pr_err("Couldn't set HVDCP_BATT_MISSING_CTRL_REG rc=%d\n", rc);
+		pr_debug("Couldn't set HVDCP_BATT_MISSING_CTRL_REG rc=%d\n", rc);
 		return rc;
 	}
 	smb1351_enable_hvdcp(chip);//11.15
@@ -1165,7 +1165,7 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 		APSD_DONE_BIT | LED_BLINK_FUNC_BIT;
 	rc = smb1351_masked_write(chip, CHG_PIN_EN_CTRL_REG, mask, reg);
 	if (rc) {
-		pr_err("Couldn't set CHG_PIN_EN_CTRL_REG rc=%d\n", rc);
+		pr_debug("Couldn't set CHG_PIN_EN_CTRL_REG rc=%d\n", rc);
 		return rc;
 	}
 
@@ -1177,7 +1177,7 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 	mask = USB_2_3_MODE_SEL_BIT | USB_5_1_CMD_POLARITY_BIT;
 	rc = smb1351_masked_write(chip, CHG_OTH_CURRENT_CTRL_REG, mask, reg);
 	if (rc) {
-		pr_err("Couldn't set CHG_OTH_CURRENT_CTRL_REG rc=%d\n", rc);
+		pr_debug("Couldn't set CHG_OTH_CURRENT_CTRL_REG rc=%d\n", rc);
 		return rc;
 	}
 	/* setup USB suspend, AICL and APSD  */
@@ -1187,7 +1187,7 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 	mask = SUSPEND_MODE_CTRL_BIT | AICL_EN_BIT | APSD_EN_BIT;
 	rc = smb1351_masked_write(chip, VARIOUS_FUNC_REG, mask, reg);
 	if (rc) {
-		pr_err("Couldn't set VARIOUS_FUNC_REG rc=%d\n",	rc);
+		pr_debug("Couldn't set VARIOUS_FUNC_REG rc=%d\n",	rc);
 		return rc;
 	}
 	/* Fault and Status IRQ configuration */
@@ -1195,7 +1195,7 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 		| INPUT_OVLO_BIT | INPUT_UVLO_BIT | AICL_DONE_FAIL_BIT;
 	rc = smb1351_write_reg(chip, FAULT_INT_REG, reg);
 	if (rc) {
-		pr_err("Couldn't set FAULT_INT_REG rc=%d\n", rc);
+		pr_debug("Couldn't set FAULT_INT_REG rc=%d\n", rc);
 		return rc;
 	}
 	reg = CHG_OR_PRECHG_TIMEOUT_BIT | BATT_OVP_BIT |
@@ -1205,21 +1205,21 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 		reg = reg | RID_CHANGE_BIT;
 	rc = smb1351_write_reg(chip, STATUS_INT_REG, reg);
 	if (rc) {
-		pr_err("Couldn't set STATUS_INT_REG rc=%d\n", rc);
+		pr_debug("Couldn't set STATUS_INT_REG rc=%d\n", rc);
 		return rc;
 	}
 	/* setup THERM Monitor */
 	rc = smb1351_masked_write(chip, THERM_A_CTRL_REG,
 			THERM_MONITOR_BIT, THERM_MONITOR_EN);
 	if (rc) {
-		pr_err("Couldn't set THERM_A_CTRL_REG rc=%d\n",	rc);
+		pr_debug("Couldn't set THERM_A_CTRL_REG rc=%d\n",	rc);
 		return rc;
 	}
 	/* set the fast charge current limit */
 	rc = smb1351_fastchg_current_set(chip,
 			chip->target_fastchg_current_max_ma);
 	if (rc) {
-		pr_err("Couldn't set fastchg current rc=%d\n", rc);
+		pr_debug("Couldn't set fastchg current rc=%d\n", rc);
 		return rc;
 	}
 
@@ -1227,7 +1227,7 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 	if (chip->vfloat_mv != -EINVAL) {
 		rc = smb1351_float_voltage_set(chip, chip->vfloat_mv);
 		if (rc) {
-			pr_err("Couldn't set float voltage rc = %d\n", rc);
+			pr_debug("Couldn't set float voltage rc = %d\n", rc);
 			return rc;
 		}
 	}
@@ -1235,19 +1235,19 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 	/* set iterm */
 	if (chip->iterm_ma != -EINVAL) {
 		if (chip->iterm_disabled) {
-			pr_err("Error: Both iterm_disabled and iterm_ma set\n");
+			pr_debug("Error: Both iterm_disabled and iterm_ma set\n");
 			return -EINVAL;
 		}
 		rc = smb1351_iterm_set(chip, chip->iterm_ma);
 		if (rc) {
-			pr_err("Couldn't set iterm rc = %d\n", rc);
+			pr_debug("Couldn't set iterm rc = %d\n", rc);
 			return rc;
 		}
 	} else  if (chip->iterm_disabled) {
 		rc = smb1351_masked_write(chip, CHG_CTRL_REG,
 					ITERM_EN_BIT, ITERM_DISABLE);
 		if (rc) {
-			pr_err("Couldn't set iterm rc = %d\n", rc);
+			pr_debug("Couldn't set iterm rc = %d\n", rc);
 			return rc;
 		}
 	}
@@ -1255,7 +1255,7 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 	/* set recharge-threshold */
 	if (chip->recharge_mv != -EINVAL) {
 		if (chip->recharge_disabled) {
-			pr_err("Error: Both recharge_disabled and recharge_mv set\n");
+			pr_debug("Error: Both recharge_disabled and recharge_mv set\n");
 			return -EINVAL;
 		}
 
@@ -1269,7 +1269,7 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 				AUTO_RECHG_BIT |
 				AUTO_RECHG_TH_BIT, reg);
 		if (rc) {
-			pr_err("Couldn't set rechg-cfg rc = %d\n", rc);
+			pr_debug("Couldn't set rechg-cfg rc = %d\n", rc);
 			return rc;
 		}
 	} else if (chip->recharge_disabled) {
@@ -1277,7 +1277,7 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 				AUTO_RECHG_BIT,
 				AUTO_RECHG_DISABLE);
 		if (rc) {
-			pr_err("Couldn't disable auto-rechg rc = %d\n", rc);
+			pr_debug("Couldn't disable auto-rechg rc = %d\n", rc);
 			return rc;
 		}
 	}
@@ -1288,7 +1288,7 @@ static int smb1351_hw_init(struct smb1351_charger *chip)
 				OTG_ID_PIN_CTRL_MASK,
 				RID_ENABLED_OTG_I2C << OTG_ID_PIN_CTRL_SHIFT);
 		if (rc) {
-			pr_err("Couldn't configure RID enable rc = %d\n", rc);
+			pr_debug("Couldn't configure RID enable rc = %d\n", rc);
 			return rc;
 		}
 	}
@@ -1318,7 +1318,7 @@ static int smb1351_get_current_now(struct smb1351_charger *chip)
 	
 	smb1351_check_bms_psy(chip);
 	if (!chip->bms_psy) {
-		pr_err("return DEFAULT_CURRENT_NOW\n");
+		pr_debug("return DEFAULT_CURRENT_NOW\n");
 		return DEFAULT_CURRENT_NOW;
 	}else{
 		power_supply_get_property(chip->bms_psy,
@@ -1332,7 +1332,7 @@ static int smb1351_get_voltage_now(struct smb1351_charger *chip)
 	
 	smb1351_check_bms_psy(chip);
 	if (!chip->bms_psy) {
-		pr_err("return DEFAULT_VOLUNTAGE_NOW\n");
+		pr_debug("return DEFAULT_VOLUNTAGE_NOW\n");
 		return DEFAULT_VOLUNTAGE_NOW;
 	}else{
 		power_supply_get_property(chip->bms_psy,
@@ -1351,11 +1351,11 @@ static int smb1351_get_prop_batt_status(struct smb1351_charger *chip)
 
 	rc = smb1351_read_reg(chip, STATUS_4_REG, &reg);
 	if (rc) {
-		pr_err("Couldn't read STATUS_4 rc = %d\n", rc);
+		pr_debug("Couldn't read STATUS_4 rc = %d\n", rc);
 		return POWER_SUPPLY_STATUS_UNKNOWN;
 	}
 
-	pr_err("STATUS_4_REG(0x3A)=%x\n", reg);
+	pr_debug("STATUS_4_REG(0x3A)=%x\n", reg);
 
 	if (reg & STATUS_HOLD_OFF_BIT)
 		return POWER_SUPPLY_STATUS_NOT_CHARGING;
@@ -1381,14 +1381,14 @@ static int smb1351_get_prop_batt_capacity(struct smb1351_charger *chip)
 	//if (chip->bms_psy) {
 	smb1351_check_bms_psy(chip);
 	if (!chip->bms_psy) {
-		pr_err("return DEFAULT_BATT_CAPACITY\n");
+		pr_debug("return DEFAULT_BATT_CAPACITY\n");
 		return DEFAULT_BATT_CAPACITY;
 	}else{
 		power_supply_get_property(chip->bms_psy,
 				POWER_SUPPLY_PROP_CAPACITY, &ret);
 		return ret.intval;
 	}
-	//pr_err("return DEFAULT_BATT_CAPACITY\n");
+	//pr_debug("return DEFAULT_BATT_CAPACITY\n");
 	//return DEFAULT_BATT_CAPACITY;
 }
 
@@ -1399,7 +1399,7 @@ static int smb1351_get_prop_batt_temp(struct smb1351_charger *chip)
 	//if (chip->bms_psy) {
 	smb1351_check_bms_psy(chip);
 	if (!chip->bms_psy) {
-		pr_err("return DEFAULT_BATT_TEMP\n");
+		pr_debug("return DEFAULT_BATT_TEMP\n");
 		return DEFAULT_BATT_TEMP;
 	}else{
 		power_supply_get_property(chip->bms_psy,
@@ -1408,7 +1408,7 @@ static int smb1351_get_prop_batt_temp(struct smb1351_charger *chip)
 		return ret.intval * 10;
 	}
 
-	//pr_err("return default temperature\n");
+	//pr_debug("return default temperature\n");
 	//return DEFAULT_BATT_TEMP;
 }
 
@@ -1419,11 +1419,11 @@ static int smb1351_get_prop_charge_type(struct smb1351_charger *chip)
 
 	rc = smb1351_read_reg(chip, STATUS_4_REG, &reg);
 	if (rc) {
-		pr_err("Couldn't read STATUS_4 rc = %d\n", rc);
+		pr_debug("Couldn't read STATUS_4 rc = %d\n", rc);
 		return POWER_SUPPLY_CHARGE_TYPE_UNKNOWN;
 	}
 
-	pr_err("STATUS_4_REG(0x3A)=%x\n", reg);
+	pr_debug("STATUS_4_REG(0x3A)=%x\n", reg);
 
 	reg &= STATUS_CHG_MASK;
 
@@ -1461,17 +1461,17 @@ static int smb1351_set_usb_chg_current(struct smb1351_charger *chip,
 	int i, rc = 0;
 	u8 reg = 0, mask = 0;
 
-	pr_err("USB current_ma = %d\n", current_ma);
+	pr_debug("USB current_ma = %d\n", current_ma);
 
 	if (chip->chg_autonomous_mode) {
-		pr_err("Charger in autonomous mode\n");
+		pr_debug("Charger in autonomous mode\n");
 		return 0;
 	}
 
 	/* set suspend bit when urrent_ma <= 2 */
 	if (current_ma <= SUSPEND_CURRENT_MA) {
 		smb1351_usb_suspend(chip, CURRENT, true);
-		pr_err("USB suspend\n");
+		pr_debug("USB suspend\n");
 		return 0;
 	}
 
@@ -1504,7 +1504,7 @@ static int smb1351_set_usb_chg_current(struct smb1351_charger *chip,
 		rc = smb1351_masked_write(chip, CHG_CURRENT_CTRL_REG,
 						AC_INPUT_CURRENT_LIMIT_MASK, i);
 		if (rc) {
-			pr_err("Couldn't set input mA rc=%d\n", rc);
+			pr_debug("Couldn't set input mA rc=%d\n", rc);
 			return rc;
 		}
 	}
@@ -1514,7 +1514,7 @@ static int smb1351_set_usb_chg_current(struct smb1351_charger *chip,
 		CMD_USB_1_5_AC_CTRL_MASK;
 	rc = smb1351_masked_write(chip, CMD_INPUT_LIMIT_REG, mask, reg);
 	if (rc) {
-		pr_err("Couldn't set charging mode rc = %d\n", rc);
+		pr_debug("Couldn't set charging mode rc = %d\n", rc);
 		return rc;
 	}
 
@@ -1533,7 +1533,7 @@ static int smb1351_get_usb_voltage_now(struct smb1351_charger *chip)
 
 	smb1351_check_bms_psy(chip);
 	if (!chip->bms_psy) {
-		pr_err("return DEFAULT_VOLUNTAGE_NOW\n");
+		pr_debug("return DEFAULT_VOLUNTAGE_NOW\n");
 		return DEFAULT_VOLUNTAGE_NOW;
 	}else{
 		power_supply_get_property(chip->bms_psy,
@@ -1579,7 +1579,7 @@ static int smb1351_usb_get_property(struct power_supply *psy,
 			val->intval = 1;
 		else
 			val->intval = 0;
-		pr_err("%s:usb_online=%d\n",__func__,val->intval);
+		pr_debug("%s:usb_online=%d\n",__func__,val->intval);
 		#if CONFIG_TOUCHSCREEN_COMMON
 			g_touchscreen_usb_pulgin.usb_plugged_in = val->intval;
 			if(g_touchscreen_usb_pulgin.valid){
@@ -1678,7 +1678,7 @@ static int smb1351_ac_get_property(struct power_supply *psy,
 			val->intval = 1;
 		else
 			val->intval = 0;
-		pr_err("%s:ac_online=%d\n",__func__,val->intval);
+		pr_debug("%s:ac_online=%d\n",__func__,val->intval);
 		break;
 	case POWER_SUPPLY_PROP_TYPE:
 		val->intval = chip->charger_type;
@@ -1746,28 +1746,28 @@ static int smb1351_battery_set_property(struct power_supply *psy,
 		case POWER_SUPPLY_STATUS_FULL:
 			rc = smb1351_battchg_disable(chip, SOC, true);
 			if (rc) {
-				pr_err("Couldn't disable charging  rc = %d\n",
+				pr_debug("Couldn't disable charging  rc = %d\n",
 									rc);
 			} else {
 				chip->batt_full = true;
-				pr_err("status = FULL, batt_full = %d\n",
+				pr_debug("status = FULL, batt_full = %d\n",
 							chip->batt_full);
 			}
 			break;
 		case POWER_SUPPLY_STATUS_DISCHARGING:
 			chip->batt_full = false;
 			power_supply_changed(chip->batt_psy);
-			pr_err("status = DISCHARGING, batt_full = %d\n",
+			pr_debug("status = DISCHARGING, batt_full = %d\n",
 							chip->batt_full);
 			break;
 		case POWER_SUPPLY_STATUS_CHARGING:
 			rc = smb1351_battchg_disable(chip, SOC, false);
 			if (rc) {
-				pr_err("Couldn't enable charging rc = %d\n",
+				pr_debug("Couldn't enable charging rc = %d\n",
 									rc);
 			} else {
 				chip->batt_full = false;
-				pr_err("status = CHARGING, batt_full = %d\n",
+				pr_debug("status = CHARGING, batt_full = %d\n",
 							chip->batt_full);
 			}
 			break;
@@ -1866,20 +1866,20 @@ static int smb1351_parallel_set_chg_suspend(struct smb1351_charger *chip,
 	int rc;
 	u8 reg, mask = 0;
 	if (chip->parallel_charger_suspended == suspend) {
-		pr_err("Skip same state request suspended = %d suspend=%d\n",
+		pr_debug("Skip same state request suspended = %d suspend=%d\n",
 				chip->parallel_charger_suspended, !suspend);
 		return 0;
 	}
 	if (!suspend) {
 		rc = smb_chip_get_version(chip);
 		if (rc) {
-			pr_err("Couldn't get version rc = %d\n", rc);
+			pr_debug("Couldn't get version rc = %d\n", rc);
 			return rc;
 		}
 
 		rc = smb1351_enable_volatile_writes(chip);
 		if (rc) {
-			pr_err("Couldn't configure for volatile rc = %d\n", rc);
+			pr_debug("Couldn't configure for volatile rc = %d\n", rc);
 			return rc;
 		}
 
@@ -1887,7 +1887,7 @@ static int smb1351_parallel_set_chg_suspend(struct smb1351_charger *chip,
 		if (chip->vfloat_mv != -EINVAL) {
 			rc = smb1351_float_voltage_set(chip, chip->vfloat_mv);
 			if (rc) {
-				pr_err("Couldn't set float voltage rc = %d\n",
+				pr_debug("Couldn't set float voltage rc = %d\n",
 									rc);
 				return rc;
 			}
@@ -1905,7 +1905,7 @@ static int smb1351_parallel_set_chg_suspend(struct smb1351_charger *chip,
 					AUTO_RECHG_BIT |
 					AUTO_RECHG_TH_BIT, reg);
 			if (rc) {
-				pr_err("Couldn't set rechg-cfg rc = %d\n", rc);
+				pr_debug("Couldn't set rechg-cfg rc = %d\n", rc);
 				return rc;
 			}
 		}
@@ -1915,7 +1915,7 @@ static int smb1351_parallel_set_chg_suspend(struct smb1351_charger *chip,
 					APSD_EN_BIT | SUSPEND_MODE_CTRL_BIT,
 						SUSPEND_MODE_CTRL_BY_I2C);
 		if (rc) {
-			pr_err("Couldn't set USB suspend rc=%d\n", rc);
+			pr_debug("Couldn't set USB suspend rc=%d\n", rc);
 			return rc;
 		}
 
@@ -1925,7 +1925,7 @@ static int smb1351_parallel_set_chg_suspend(struct smb1351_charger *chip,
 		 */
 		rc = smb1351_usb_suspend(chip, CURRENT, true);
 		if (rc) {
-			pr_err("failed to suspend rc=%d\n", rc);
+			pr_debug("failed to suspend rc=%d\n", rc);
 			return rc;
 		}
 		chip->usb_psy_ma = SUSPEND_CURRENT_MA;
@@ -1935,7 +1935,7 @@ static int smb1351_parallel_set_chg_suspend(struct smb1351_charger *chip,
 		rc = smb1351_masked_write(chip, CHG_PIN_EN_CTRL_REG,
 					EN_PIN_CTRL_MASK | USBCS_CTRL_BIT, reg);
 		if (rc) {
-			pr_err("Couldn't set en pin rc=%d\n", rc);
+			pr_debug("Couldn't set en pin rc=%d\n", rc);
 			return rc;
 		}
 
@@ -1948,7 +1948,7 @@ static int smb1351_parallel_set_chg_suspend(struct smb1351_charger *chip,
 		rc = smb1351_masked_write(chip,
 				CHG_OTH_CURRENT_CTRL_REG, mask, reg);
 		if (rc) {
-			pr_err("Couldn't set CHG_OTH_CURRENT_CTRL_REG rc=%d\n",
+			pr_debug("Couldn't set CHG_OTH_CURRENT_CTRL_REG rc=%d\n",
 					rc);
 			return rc;
 		}
@@ -1956,14 +1956,14 @@ static int smb1351_parallel_set_chg_suspend(struct smb1351_charger *chip,
 		rc = smb1351_fastchg_current_set(chip,
 					chip->target_fastchg_current_max_ma);
 		if (rc) {
-			pr_err("Couldn't set fastchg current rc=%d\n", rc);
+			pr_debug("Couldn't set fastchg current rc=%d\n", rc);
 			return rc;
 		}
 		chip->parallel_charger_suspended = false;
 	} else {
 		rc = smb1351_usb_suspend(chip, CURRENT, true);
 		if (rc)
-			pr_err("failed to suspend rc=%d\n", rc);
+			pr_debug("failed to suspend rc=%d\n", rc);
 
 		chip->usb_psy_ma = SUSPEND_CURRENT_MA;
 		chip->parallel_charger_suspended = true;
@@ -1979,7 +1979,7 @@ static bool smb1351_is_input_current_limited(struct smb1351_charger *chip)
 
 	rc = smb1351_read_reg(chip, IRQ_H_REG, &reg);
 	if (rc) {
-		pr_err("Failed to read IRQ_H_REG for ICL status: %d\n", rc);
+		pr_debug("Failed to read IRQ_H_REG for ICL status: %d\n", rc);
 		return false;
 	}
 
@@ -1994,14 +1994,14 @@ static bool smb1351_is_usb_present(struct smb1351_charger *chip)
 	if (!chip->usb_psy)
 		chip->usb_psy = power_supply_get_by_name("usb");
 	if (!chip->usb_psy) {
-		pr_err("USB psy not found\n");
+		pr_debug("USB psy not found\n");
 		return false;
 	}
 
 	rc = power_supply_get_property(chip->usb_psy,
 				POWER_SUPPLY_PROP_ONLINE, &val);
 	if (rc < 0) {
-		pr_err("Failed to get present property rc=%d\n", rc);
+		pr_debug("Failed to get present property rc=%d\n", rc);
 		return false;
 	}
 
@@ -2094,7 +2094,7 @@ static int smb1351_parallel_get_property(struct power_supply *psy,
 		if (smb1351_is_usb_present(chip)) {
 			val->intval = smb1351_get_prop_charge_type(chip);
 			if (val->intval == POWER_SUPPLY_CHARGE_TYPE_UNKNOWN) {
-				pr_err("Failed to charge type, charger may be absent\n");
+				pr_debug("Failed to charge type, charger may be absent\n");
 				return -ENODEV;
 			}
 		}
@@ -2137,12 +2137,12 @@ static int rerun_apsd(struct smb1351_charger *chip)
 {
 	int rc;
 
-	pr_err("Reruning APSD\nDisabling APSD\n");
+	pr_debug("Reruning APSD\nDisabling APSD\n");
 
 	rc = smb1351_masked_write(chip, CMD_HVDCP_REG, CMD_APSD_RE_RUN_BIT,
 						CMD_APSD_RE_RUN_BIT);
 	if (rc)
-		pr_err("Couldn't re-run APSD algo\n");
+		pr_debug("Couldn't re-run APSD algo\n");
 
 	return 0;
 }
@@ -2162,33 +2162,33 @@ static void smb1351_hvdcp_det_work(struct work_struct *work)
 
 	rc = smb1351_read_reg(chip, STATUS_7_REG, &reg);
 	if (rc) {
-		pr_err("Couldn't read STATUS_7_REG rc == %d\n", rc);
+		pr_debug("Couldn't read STATUS_7_REG rc == %d\n", rc);
 		goto end;
 	}
-	//pr_err("STATUS_7_REG = 0x%02X\n", reg);
+	//pr_debug("STATUS_7_REG = 0x%02X\n", reg);
 
 	//if (reg) {
 	pr_debug("STATUS_7_REG = 0x%02X\n", reg);
 
 	rc = smb1351_read_reg(chip, IRQ_H_REG, &reg_h);
 	if (rc){
-	   pr_err("Couldn't read IRQ_H_REG rc = %d\n",rc);
+	   pr_debug("Couldn't read IRQ_H_REG rc = %d\n",rc);
 	   goto end;
 	}
-	pr_err("IRQ_H_REG = 0x%02X\n", reg_h);
+	pr_debug("IRQ_H_REG = 0x%02X\n", reg_h);
 
 	is_hvdcp = !!(reg & (HVDCP_SEL_5V | HVDCP_SEL_9V | HVDCP_SEL_12V));
 	is_hvdcp_3 = !!(reg_h & IRQ_HVDCP_2P1_STATUS_BIT);
 
 	if (is_hvdcp) {
-		pr_err("HVDCP detected; notifying USB PSY\n");
+		pr_debug("HVDCP detected; notifying USB PSY\n");
 		pval.intval = POWER_SUPPLY_TYPE_USB_HVDCP;
 		power_supply_set_property(chip->usb_psy,
 			POWER_SUPPLY_PROP_TYPE, &pval);
 		chip->charger_type = POWER_SUPPLY_TYPE_USB_HVDCP;
 	}
 	else if (is_hvdcp_3) {
-	     pr_err("HVDCP_3 detected; notifying USB PSY\n");
+	     pr_debug("HVDCP_3 detected; notifying USB PSY\n");
 	    chip->charger_type  = POWER_SUPPLY_TYPE_USB_HVDCP_3;
 	     //power_supply_set_property(chip->usb_psy,
 					//POWER_SUPPLY_PROP_TYPE, &pval);
@@ -2211,19 +2211,19 @@ static int smb1351_apsd_complete_handler(struct smb1351_charger *chip,
 	 * USB phy driver.
 	 */
 	if (chip->disable_apsd || chip->usbin_ov) {
-		pr_err("APSD %s, status = %d\n",
+		pr_debug("APSD %s, status = %d\n",
 			chip->disable_apsd ? "disabled" : "enabled", !!status);
-		pr_err("USBIN ov, status = %d\n", chip->usbin_ov);
+		pr_debug("USBIN ov, status = %d\n", chip->usbin_ov);
 		return 0;
 	}
 
 	rc = smb1351_read_reg(chip, STATUS_5_REG, &reg);
 	if (rc) {
-		pr_err("Couldn't read STATUS_5 rc = %d\n", rc);
+		pr_debug("Couldn't read STATUS_5 rc = %d\n", rc);
 		return rc;
 	}
 
-	pr_err("STATUS_5_REG(0x3B)=%x\n", reg);
+	pr_debug("STATUS_5_REG(0x3B)=%x\n", reg);
 
 	switch (reg) {
 	case STATUS_PORT_ACA_DOCK:
@@ -2251,7 +2251,7 @@ static int smb1351_apsd_complete_handler(struct smb1351_charger *chip,
 
 	if (status) {
 		chip->chg_present = true;
-		pr_err("APSD complete. USB type detected=%d chg_present=%d\n",
+		pr_debug("APSD complete. USB type detected=%d chg_present=%d\n",
 						type, chip->chg_present);
 		if (!chip->battery_missing && !chip->apsd_rerun) {
 			if (type == POWER_SUPPLY_TYPE_USB) {
@@ -2267,7 +2267,7 @@ static int smb1351_apsd_complete_handler(struct smb1351_charger *chip,
 		 * we force to hvdcp 2p0 in the APSD handler.
 		 */
 		if (chip->force_hvdcp_2p0) {
-			pr_err("Force set to HVDCP 2.0 mode\n");
+			pr_debug("Force set to HVDCP 2.0 mode\n");
 			smb1351_masked_write(chip, VARIOUS_FUNC_3_REG,
 						QC_2P1_AUTH_ALGO_BIT, 0);
 			smb1351_masked_write(chip, CMD_HVDCP_REG,
@@ -2290,7 +2290,7 @@ static int smb1351_apsd_complete_handler(struct smb1351_charger *chip,
 			extcon_set_property(chip->extcon, EXTCON_USB,
 						EXTCON_PROP_USB_SS, val);
 			extcon_set_state_sync(chip->extcon, EXTCON_USB, true);
-			pr_err("extcon notify: EXTCON_USB present = 1\n");
+			pr_debug("extcon notify: EXTCON_USB present = 1\n");
 		}
 		chip->apsd_rerun = false;
 
@@ -2304,7 +2304,7 @@ static int smb1351_apsd_complete_handler(struct smb1351_charger *chip,
 		smb1351_enable_volatile_writes(chip);
 		rc = smb1351_set_usb_chg_current(chip, chip->usb_psy_ma);
 		if (rc < 0)
-			pr_err("Failed to set USB current rc=%d\n", rc);
+			pr_debug("Failed to set USB current rc=%d\n", rc);
 
 	} else if (!chip->apsd_rerun) {
 		/* Handle Charger removal */
@@ -2314,7 +2314,7 @@ static int smb1351_apsd_complete_handler(struct smb1351_charger *chip,
 		extcon_set_property(chip->extcon, EXTCON_USB,
 						EXTCON_PROP_USB_SS, val);
 		extcon_set_state_sync(chip->extcon, EXTCON_USB, false);
-		pr_err("extcon notify: EXTCON_USB present = 0\n");
+		pr_debug("extcon notify: EXTCON_USB present = 0\n");
 		smb1351_request_dpdm(chip, false);
 	}
 
@@ -2337,18 +2337,18 @@ static void smb1351_chg_remove_work(struct work_struct *work)
 
 	rc = smb1351_read_reg(chip, IRQ_G_REG, &reg);
 	if (rc) {
-		pr_err("Couldn't read IRQ_G_REG rc = %d\n", rc);
+		pr_debug("Couldn't read IRQ_G_REG rc = %d\n", rc);
 		goto end;
 	}
 
 	if (!(reg & IRQ_SOURCE_DET_BIT)) {
-		pr_err("chg removed\n");
+		pr_debug("chg removed\n");
 		smb1351_apsd_complete_handler(chip, 0);
 	} else if (!chip->chg_remove_work_scheduled) {
 		chip->chg_remove_work_scheduled = true;
 		goto reschedule;
 	} else {
-		pr_err("charger is present\n");
+		pr_debug("charger is present\n");
 	}
 end:
 	chip->chg_remove_work_scheduled = false;
@@ -2356,7 +2356,7 @@ end:
 	return;
 
 reschedule:
-	pr_err("reschedule after 1s\n");
+	pr_debug("reschedule after 1s\n");
 	schedule_delayed_work(&chip->chg_remove_work,
 				msecs_to_jiffies(SECOND_CHECK_DELAY));
 }
@@ -2369,13 +2369,13 @@ static int smb1351_usbin_uv_handler(struct smb1351_charger *chip, u8 status)
 	if (status) {
 		cancel_delayed_work_sync(&chip->hvdcp_det_work);
 		pm_relax(chip->dev);
-		pr_err("schedule charger remove worker\n");
+		pr_debug("schedule charger remove worker\n");
 		schedule_delayed_work(&chip->chg_remove_work,
 					msecs_to_jiffies(FIRST_CHECK_DELAY));
 		pm_stay_awake(chip->dev);
 	}
 
-	pr_err("chip->chg_present = %d\n", chip->chg_present);
+	pr_debug("chip->chg_present = %d\n", chip->chg_present);
 
 	return 0;
 }
@@ -2387,39 +2387,39 @@ static int smb1351_usbin_ov_handler(struct smb1351_charger *chip, u8 status)
 
 	rc = smb1351_read_reg(chip, IRQ_E_REG, &reg);
 	if (rc)
-		pr_err("Couldn't read IRQ_E rc = %d\n", rc);
+		pr_debug("Couldn't read IRQ_E rc = %d\n", rc);
 
 	if (status != 0) {
 		chip->usbin_ov = true;
 		chip->charger_type = POWER_SUPPLY_TYPE_UNKNOWN;
 		if (chip->chg_present) {
 			extcon_set_state_sync(chip->extcon, EXTCON_USB, false);
-			pr_err("extcon notify: EXTCON_USB present = 0\n");
+			pr_debug("extcon notify: EXTCON_USB present = 0\n");
 		}
 		chip->chg_present = false;
 
 	} else {
 		chip->usbin_ov = false;
 		if (reg & IRQ_USBIN_UV_BIT)
-			pr_err("Charger unplugged from OV\n");
+			pr_debug("Charger unplugged from OV\n");
 		else
 			smb1351_apsd_complete_handler(chip, 1);
 	}
 
-	pr_err("chip->chg_present = %d\n", chip->chg_present);
+	pr_debug("chip->chg_present = %d\n", chip->chg_present);
 
 	return 0;
 }
 
 static int smb1351_fast_chg_handler(struct smb1351_charger *chip, u8 status)
 {
-	pr_err("enter\n");
+	pr_debug("enter\n");
 	return 0;
 }
 
 static int smb1351_chg_term_handler(struct smb1351_charger *chip, u8 status)
 {
-	pr_err("enter\n");
+	pr_debug("enter\n");
 	if (!chip->bms_controlled_charging)
 		chip->batt_full = !!status;
 	return 0;
@@ -2428,37 +2428,37 @@ static int smb1351_chg_term_handler(struct smb1351_charger *chip, u8 status)
 static int smb1351_safety_timeout_handler(struct smb1351_charger *chip,
 						u8 status)
 {
-	pr_err("safety_timeout triggered\n");
+	pr_debug("safety_timeout triggered\n");
 	return 0;
 }
 
 static int smb1351_aicl_done_handler(struct smb1351_charger *chip, u8 status)
 {
-	pr_err("aicl_done triggered\n");
+	pr_debug("aicl_done triggered\n");
 	return 0;
 }
 
 static int smb1351_hot_hard_handler(struct smb1351_charger *chip, u8 status)
 {
-	pr_err("status = 0x%02x\n", status);
+	pr_debug("status = 0x%02x\n", status);
 	chip->batt_hot = !!status;
 	return 0;
 }
 static int smb1351_cold_hard_handler(struct smb1351_charger *chip, u8 status)
 {
-	pr_err("status = 0x%02x\n", status);
+	pr_debug("status = 0x%02x\n", status);
 	chip->batt_cold = !!status;
 	return 0;
 }
 static int smb1351_hot_soft_handler(struct smb1351_charger *chip, u8 status)
 {
-	pr_err("status = 0x%02x\n", status);
+	pr_debug("status = 0x%02x\n", status);
 	chip->batt_warm = !!status;
 	return 0;
 }
 static int smb1351_cold_soft_handler(struct smb1351_charger *chip, u8 status)
 {
-	pr_err("status = 0x%02x\n", status);
+	pr_debug("status = 0x%02x\n", status);
 	chip->batt_cool = !!status;
 	return 0;
 }
@@ -2477,7 +2477,7 @@ static int smb1351_battery_missing_handler(struct smb1351_charger *chip,
 int extcon_otg(bool flag)
 {
 	union extcon_property_value val;
-	pr_err("%s flag = %d\n", __func__, flag);
+	pr_debug("%s flag = %d\n", __func__, flag);
 	if(flag){
 		val.intval = true;
 		smb1351_chg_otg_regulator_enable(chip_host->otg_vreg.rdev);
@@ -2504,8 +2504,8 @@ static int smb1351_rid_handler(struct smb1351_charger *chip,
 
 	rc = smb1351_read_reg(chip, STATUS_6_REG, &reg);
 	if (rc < 0)
-		pr_err("Couldn't read status_6_reg, rc=%d\n", rc);
-	pr_err("rt_status = 0x%02x, status_6_reg=0x%x\n", status, reg);
+		pr_debug("Couldn't read status_6_reg, rc=%d\n", rc);
+	pr_debug("rt_status = 0x%02x, status_6_reg=0x%x\n", status, reg);
 
 	rid_status = (!!status) || !(reg & STATUS_RID_FLOAT_STATE_MACHINE_BIT);
 	if (rid_status) {
@@ -2515,7 +2515,7 @@ static int smb1351_rid_handler(struct smb1351_charger *chip,
 	}
 
 	extcon_set_state_sync(chip->extcon, EXTCON_USB_HOST, rid_status);
-	pr_err("extcon notify: EXTCON_USB_HOST present = %d\n", rid_status);
+	pr_debug("extcon notify: EXTCON_USB_HOST present = %d\n", rid_status);
 
 	return 0;
 }
@@ -2669,7 +2669,7 @@ static irqreturn_t smb1351_chg_stat_handler(int irq, void *dev_id)
 
 	chip->irq_waiting = true;
 	if (!chip->resume_completed) {
-		pr_err("IRQ triggered before device-resume\n");
+		pr_debug("IRQ triggered before device-resume\n");
 		disable_irq_nosync(irq);
 		mutex_unlock(&chip->irq_complete);
 		return IRQ_HANDLED;
@@ -2680,7 +2680,7 @@ static irqreturn_t smb1351_chg_stat_handler(int irq, void *dev_id)
 		rc = smb1351_read_reg(chip, handlers[i].stat_reg,
 						&handlers[i].val);
 		if (rc) {
-			pr_err("Couldn't read %d rc = %d\n",
+			pr_debug("Couldn't read %d rc = %d\n",
 					handlers[i].stat_reg, rc);
 			continue;
 		}
@@ -2704,16 +2704,16 @@ static irqreturn_t smb1351_chg_stat_handler(int irq, void *dev_id)
 				rc = handlers[i].irq_info[j].smb_irq(chip,
 								rt_stat);
 				if (rc)
-					pr_err("Couldn't handle %d irq for reg 0x%02x rc = %d\n",
+					pr_debug("Couldn't handle %d irq for reg 0x%02x rc = %d\n",
 						j, handlers[i].stat_reg, rc);
 			}
 		}
 		handlers[i].prev_val = handlers[i].val;
 	}
 
-	pr_err("handler count = %d\n", handler_count);
+	pr_debug("handler count = %d\n", handler_count);
 	if (handler_count) {
-		pr_err("batt psy changed\n");
+		pr_debug("batt psy changed\n");
 		power_supply_changed(chip->batt_psy);
 	}
 
@@ -2864,7 +2864,7 @@ static int get_reg(void *data, u64 *val)
 
 	rc = smb1351_read_reg(chip, chip->peek_poke_address, &temp);
 	if (rc) {
-		pr_err("Couldn't read reg %x rc = %d\n",
+		pr_debug("Couldn't read reg %x rc = %d\n",
 			chip->peek_poke_address, rc);
 		return -EAGAIN;
 	}
@@ -2881,7 +2881,7 @@ static int set_reg(void *data, u64 val)
 	temp = (u8) val;
 	rc = smb1351_write_reg(chip, chip->peek_poke_address, temp);
 	if (rc) {
-		pr_err("Couldn't write 0x%02x to 0x%02x rc= %d\n",
+		pr_debug("Couldn't write 0x%02x to 0x%02x rc= %d\n",
 			temp, chip->peek_poke_address, rc);
 		return -EAGAIN;
 	}
@@ -2908,25 +2908,25 @@ static void dump_regs(struct smb1351_charger *chip)
 	for (addr = 0; addr <= LAST_CNFG_REG; addr++) {
 		rc = smb1351_read_reg(chip, addr, &reg);
 		if (rc)
-			pr_err("Couldn't read 0x%02x rc = %d\n", addr, rc);
+			pr_debug("Couldn't read 0x%02x rc = %d\n", addr, rc);
 		else
-			pr_err("0x%02x = 0x%02x\n", addr, reg);
+			pr_debug("0x%02x = 0x%02x\n", addr, reg);
 	}
 
 	for (addr = FIRST_STATUS_REG; addr <= LAST_STATUS_REG; addr++) {
 		rc = smb1351_read_reg(chip, addr, &reg);
 		if (rc)
-			pr_err("Couldn't read 0x%02x rc = %d\n", addr, rc);
+			pr_debug("Couldn't read 0x%02x rc = %d\n", addr, rc);
 		else
-			pr_err("0x%02x = 0x%02x\n", addr, reg);
+			pr_debug("0x%02x = 0x%02x\n", addr, reg);
 	}
 
 	for (addr = FIRST_CMD_REG; addr <= LAST_CMD_REG; addr++) {
 		rc = smb1351_read_reg(chip, addr, &reg);
 		if (rc)
-			pr_err("Couldn't read 0x%02x rc = %d\n", addr, rc);
+			pr_debug("Couldn't read 0x%02x rc = %d\n", addr, rc);
 		else
-			pr_err("0x%02x = 0x%02x\n", addr, reg);
+			pr_debug("0x%02x = 0x%02x\n", addr, reg);
 	}
 }
 #else
@@ -2941,7 +2941,7 @@ static int smb1351_parse_dt(struct smb1351_charger *chip)
 	struct device_node *node = chip->dev->of_node;
 
 	if (!node) {
-		pr_err("device tree info. missing\n");
+		pr_debug("device tree info. missing\n");
 		return -EINVAL;
 	}
 
@@ -3011,7 +3011,7 @@ static int smb1351_determine_initial_state(struct smb1351_charger *chip)
 
 	rc = smb1351_read_reg(chip, IRQ_B_REG, &reg);
 	if (rc) {
-		pr_err("Couldn't read IRQ_B rc = %d\n", rc);
+		pr_debug("Couldn't read IRQ_B rc = %d\n", rc);
 		goto fail_init_status;
 	}
 
@@ -3019,14 +3019,14 @@ static int smb1351_determine_initial_state(struct smb1351_charger *chip)
 
 	rc = smb1351_read_reg(chip, IRQ_C_REG, &reg);
 	if (rc) {
-		pr_err("Couldn't read IRQ_C rc = %d\n", rc);
+		pr_debug("Couldn't read IRQ_C rc = %d\n", rc);
 		goto fail_init_status;
 	}
 	chip->batt_full = (reg & IRQ_TERM_BIT) ? true : false;
 
 	rc = smb1351_read_reg(chip, IRQ_A_REG, &reg);
 	if (rc) {
-		pr_err("Couldn't read irq A rc = %d\n", rc);
+		pr_debug("Couldn't read irq A rc = %d\n", rc);
 		return rc;
 	}
 
@@ -3042,14 +3042,14 @@ static int smb1351_determine_initial_state(struct smb1351_charger *chip)
 	/* check initial state of OTG */
 	rc = smb1351_read_reg(chip, IRQ_F_REG, &reg);
 	if (rc) {
-		pr_err("Couldn't read IRQ_F rc = %d\n", rc);
+		pr_debug("Couldn't read IRQ_F rc = %d\n", rc);
 		goto fail_init_status;
 	}
 	smb1351_rid_handler(chip, reg & IRQ_RID_BIT);
 
 	rc = smb1351_read_reg(chip, IRQ_E_REG, &reg);
 	if (rc) {
-		pr_err("Couldn't read IRQ_E rc = %d\n", rc);
+		pr_debug("Couldn't read IRQ_E rc = %d\n", rc);
 		goto fail_init_status;
 	}
 
@@ -3063,7 +3063,7 @@ static int smb1351_determine_initial_state(struct smb1351_charger *chip)
 	return 0;
 
 fail_init_status:
-	pr_err("Couldn't determine initial status\n");
+	pr_debug("Couldn't determine initial status\n");
 	return rc;
 }
 
@@ -3080,50 +3080,50 @@ static int create_debugfs_entries(struct smb1351_charger *chip)
 
 	chip->debug_root = debugfs_create_dir("smb1351", NULL);
 	if (!chip->debug_root) {
-		pr_err("Couldn't create debug dir\n");
+		pr_debug("Couldn't create debug dir\n");
 	} else {
 		ent = debugfs_create_file("config_registers", S_IFREG | 0444,
 					  chip->debug_root, chip,
 					  &cnfg_debugfs_ops);
 		if (!ent)
-			pr_err("Couldn't create cnfg debug file\n");
+			pr_debug("Couldn't create cnfg debug file\n");
 
 		ent = debugfs_create_file("status_registers", S_IFREG | 0444,
 					  chip->debug_root, chip,
 					  &status_debugfs_ops);
 		if (!ent)
-			pr_err("Couldn't create status debug file\n");
+			pr_debug("Couldn't create status debug file\n");
 
 		ent = debugfs_create_file("cmd_registers", S_IFREG | 0444,
 					  chip->debug_root, chip,
 					  &cmd_debugfs_ops);
 		if (!ent)
-			pr_err("Couldn't create cmd debug file\n");
+			pr_debug("Couldn't create cmd debug file\n");
 
 		ent = debugfs_create_x32("address", S_IFREG | 0644,
 					  chip->debug_root,
 					  &(chip->peek_poke_address));
 		if (!ent)
-			pr_err("Couldn't create address debug file\n");
+			pr_debug("Couldn't create address debug file\n");
 
 		ent = debugfs_create_file("data", S_IFREG | 0644,
 					  chip->debug_root, chip,
 					  &poke_poke_debug_ops);
 		if (!ent)
-			pr_err("Couldn't create data debug file\n");
+			pr_debug("Couldn't create data debug file\n");
 
 		ent = debugfs_create_file("force_irq",
 					  S_IFREG | 0644,
 					  chip->debug_root, chip,
 					  &force_irq_ops);
 		if (!ent)
-			pr_err("Couldn't create data debug file\n");
+			pr_debug("Couldn't create data debug file\n");
 
 		ent = debugfs_create_file("irq_count", S_IFREG | 0444,
 					  chip->debug_root, chip,
 					  &irq_count_debugfs_ops);
 		if (!ent)
-			pr_err("Couldn't create count debug file\n");
+			pr_debug("Couldn't create count debug file\n");
 	}
 	return 0;
 }
@@ -3149,14 +3149,14 @@ static int smb1351_main_charger_probe(struct i2c_client *client,
 	chip->extcon = devm_extcon_dev_allocate(chip->dev,
 					smb1351_extcon_cable);
 	if (IS_ERR(chip->extcon)) {
-		pr_err("failed to allocate extcon device\n");
+		pr_debug("failed to allocate extcon device\n");
 		rc = PTR_ERR(chip->extcon);
 		return rc;
 	}
 
 	rc = devm_extcon_dev_register(chip->dev, chip->extcon);
 	if (rc) {
-		pr_err("failed to register extcon device\n");
+		pr_debug("failed to register extcon device\n");
 		return rc;
 	}
 
@@ -3165,7 +3165,7 @@ static int smb1351_main_charger_probe(struct i2c_client *client,
 	rc |= extcon_set_property_capability(chip->extcon,
 			EXTCON_USB_HOST, EXTCON_PROP_USB_SS);
 	if (rc < 0) {
-		pr_err("Failed to register extcon capability rc=%d\n", rc);
+		pr_debug("Failed to register extcon capability rc=%d\n", rc);
 		return rc;
 	}
 
@@ -3184,7 +3184,7 @@ static int smb1351_main_charger_probe(struct i2c_client *client,
 	chip->usb_psy = devm_power_supply_register(chip->dev,
 				&chip->usb_psy_d, &usb_psy_cfg);
 	if (IS_ERR(chip->usb_psy)) {
-		pr_err("Unable to register usb_psy rc = %ld\n",
+		pr_debug("Unable to register usb_psy rc = %ld\n",
 			PTR_ERR(chip->usb_psy));
 		rc = PTR_ERR(chip->usb_psy);
 		return rc;
@@ -3205,7 +3205,7 @@ static int smb1351_main_charger_probe(struct i2c_client *client,
 	chip->ac_psy = devm_power_supply_register(chip->dev,
 				&chip->ac_psy_d, &ac_psy_cfg);
 	if (IS_ERR(chip->ac_psy)) {
-		pr_err("Unable to register ac_psy rc = %ld\n",
+		pr_debug("Unable to register ac_psy rc = %ld\n",
 			PTR_ERR(chip->ac_psy));
 		rc = PTR_ERR(chip->ac_psy);
 		return rc;
@@ -3217,14 +3217,14 @@ static int smb1351_main_charger_probe(struct i2c_client *client,
 	/* probe the device to check if its actually connected */
 	rc = smb1351_read_reg(chip, CHG_REVISION_REG, &reg);
 	if (rc) {
-		pr_err("Failed to detect smb1351, device may be absent\n");
+		pr_debug("Failed to detect smb1351, device may be absent\n");
 		return -ENODEV;
 	}
-	pr_err("smb1351 chip revision is %d\n", reg);
+	pr_debug("smb1351 chip revision is %d\n", reg);
 
 	rc = smb1351_parse_dt(chip);
 	if (rc) {
-		pr_err("Couldn't parse DT nodes rc=%d\n", rc);
+		pr_debug("Couldn't parse DT nodes rc=%d\n", rc);
 		return rc;
 	}
 
@@ -3250,7 +3250,7 @@ static int smb1351_main_charger_probe(struct i2c_client *client,
 			&chip->batt_psy_d,
 			&batt_psy_cfg);
 	if (IS_ERR(chip->batt_psy)) {
-		pr_err("Couldn't register batt psy rc=%ld\n",
+		pr_debug("Couldn't register batt psy rc=%ld\n",
 				PTR_ERR(chip->batt_psy));
 		return rc;
 	}
@@ -3259,18 +3259,18 @@ static int smb1351_main_charger_probe(struct i2c_client *client,
 
 	rc = smb1351_regulator_init(chip);
 	if (rc) {
-		pr_err("Couldn't initialize smb1351 ragulator rc=%d\n", rc);
+		pr_debug("Couldn't initialize smb1351 ragulator rc=%d\n", rc);
 		goto fail_smb1351_regulator_init;
 	}
 	rc = smb1351_hw_init(chip);
 	if (rc) {
-		pr_err("Couldn't initialize hardware rc=%d\n", rc);
+		pr_debug("Couldn't initialize hardware rc=%d\n", rc);
 		goto fail_smb1351_hw_init;
 	}
 	
 	rc = smb1351_determine_initial_state(chip);
 	if (rc) {
-		pr_err("Couldn't determine initial state rc=%d\n", rc);
+		pr_debug("Couldn't determine initial state rc=%d\n", rc);
 		goto fail_smb1351_hw_init;
 	}
 
@@ -3281,7 +3281,7 @@ static int smb1351_main_charger_probe(struct i2c_client *client,
 				IRQF_TRIGGER_LOW | IRQF_ONESHOT,
 				"smb1351_chg_stat_irq", chip);
 		if (rc) {
-			pr_err("Failed STAT irq=%d request rc = %d\n",
+			pr_debug("Failed STAT irq=%d request rc = %d\n",
 				client->irq, rc);
 			goto fail_smb1351_hw_init;
 		}
@@ -3371,7 +3371,7 @@ static int smb1351_parallel_charger_probe(struct i2c_client *client,
 			&chip->parallel_psy_d,
 			&parallel_psy_cfg);
 	if (IS_ERR(chip->parallel_psy)) {
-		pr_err("Couldn't register parallel psy rc=%ld\n",
+		pr_debug("Couldn't register parallel psy rc=%ld\n",
 				PTR_ERR(chip->parallel_psy));
 		return rc;
 	}
@@ -3432,7 +3432,7 @@ static int smb1351_suspend_noirq(struct device *dev)
 		return 0;
 
 	if (chip->irq_waiting) {
-		pr_err_ratelimited("Aborting suspend, an interrupt was detected while suspending\n");
+		pr_debug_ratelimited("Aborting suspend, an interrupt was detected while suspending\n");
 		return -EBUSY;
 	}
 	return 0;

@@ -5,7 +5,7 @@ void ksu_throne_tracker_init();
 
 void ksu_throne_tracker_exit();
 
-void track_throne();
+void track_throne(bool prune_only);
 
 /*
  * small helper to check if lock is held

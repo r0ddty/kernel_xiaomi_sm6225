@@ -20,8 +20,14 @@
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 16, 0)
 #define SYS_EXECVE_SYMBOL "__arm64_sys_execve"
+#define SYS_REBOOT_SYMBOL "__arm64_sys_reboot"
+#define SYS_NEWFSTAT_SYMBOL "__arm64_sys_newfstat"
+#define SYS_FSTAT64_SYMBOL "__arm64_sys_fstat64"
 #else
 #define SYS_EXECVE_SYMBOL "sys_execve"
+#define SYS_REBOOT_SYMBOL "sys_reboot"
+#define SYS_NEWFSTAT_SYMBOL "sys_newfstat"
+#define SYS_FSTAT64_SYMBOL "sys_fstat64"
 #endif
 
 #elif defined(__arm__)
@@ -52,6 +58,9 @@
 #define __PT_IP_REG uregs[12]
 
 #define SYS_EXECVE_SYMBOL "sys_execve"
+#define SYS_REBOOT_SYMBOL "sys_reboot"
+#define SYS_NEWFSTAT_SYMBOL "sys_newfstat"
+#define SYS_FSTAT64_SYMBOL "sys_fstat64"
 
 #elif defined(__x86_64__)
 
@@ -71,8 +80,14 @@
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 16, 0)
 #define SYS_EXECVE_SYMBOL "__x64_sys_execve"
+#define SYS_REBOOT_SYMBOL "__x64_sys_reboot"
+#define SYS_NEWFSTAT_SYMBOL "__x64_sys_newfstat"
+#define SYS_FSTAT64_SYMBOL "__ia32_compat_sys_x86_fstat64"
 #else
 #define SYS_EXECVE_SYMBOL "sys_execve"
+#define SYS_REBOOT_SYMBOL "sys_reboot"
+#define SYS_NEWFSTAT_SYMBOL "sys_newfstat"
+#define SYS_FSTAT64_SYMBOL "sys_fstat64"
 #endif
 
 #else

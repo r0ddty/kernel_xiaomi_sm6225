@@ -5,28 +5,87 @@
 #include <generated/utsrelease.h>
 #include <generated/compile.h>
 #include <linux/version.h> /* LINUX_VERSION_CODE, KERNEL_VERSION macros */
-#include <linux/workqueue.h>
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0)
+#include <uapi/asm-generic/errno.h>
+#else
+#include <asm-generic/errno.h>
+#endif
+
+#define ksu_get_uid_t(x) *(unsigned int *)&(x)
 
 #include "allowlist.h"
+#include "apk_sign.h"
+#include "app_profile.h"
+#include "arch.h"
 #include "core_hook.h"
-#include "klog.h" // IWYU pragma: keep
+#include "feature.h"
+#include "file_wrapper.h"
+#include "kernel_compat.h"
+#include "klog.h"
+#include "ksud.h"
 #include "ksu.h"
+#include "manager.h"
+#include "sucompat.h"
+#include "supercalls.h"
 #include "throne_tracker.h"
+#include "su_mount_ns.h"
+#include "selinux/selinux.h"
+#include "selinux/sepolicy.h"
+
+// selinux includes
+#include <linux/lsm_audit.h>
+#include "avc_ss.h"
+#include "objsec.h"
+#include "ss/services.h"
+#include "ss/symtab.h"
+#include "xfrm.h"
+#ifndef KSU_COMPAT_USE_SELINUX_STATE
+#include "avc.h"
+#endif
+
+// unity build
+#include "tiny_sulog.c"
+#include "allowlist.c"
+#include "app_profile.c"
+#include "apk_sign.c"
+#include "sucompat.c"
+#include "throne_tracker.c"
+#include "core_hook.c"
+#include "supercalls.c"
+#include "feature.c"
+#include "su_mount_ns.c"
+#include "ksud.c"
+#include "kernel_compat.c"
+#include "file_wrapper.c"
+
+#include "selinux/selinux.c"
+#include "selinux/sepolicy.c"
+#include "selinux/rules.c"
+
+#ifdef CONFIG_KSU_TAMPER_SYSCALL_TABLE
+#ifdef CONFIG_ARM64
+#include "syscall_table_hook.c"
+#elif CONFIG_ARM
+#include "syscall_table_hook_arm.c"
+#endif
+#endif
 
 #ifdef CONFIG_KSU_KPROBES_KSUD
-extern void kp_ksud_init();
+#include "kp_ksud.c"
 #endif
 
 #ifdef CONFIG_KSU_KRETPROBES_SUCOMPAT
-extern void rp_sucompat_init();
-#endif 
+#include "rp_sucompat.c"
+#endif
 
-static struct workqueue_struct *ksu_workqueue;
+#ifdef CONFIG_KSU_EXTRAS
+#include "extras.c"
+#endif
 
-bool ksu_queue_work(struct work_struct *work)
-{
-	return queue_work(ksu_workqueue, work);
-}
+struct cred* ksu_cred;
+
+extern void ksu_supercalls_init();
 
 // track backports and other quirks here
 // ref: kernel_compat.c, Makefile
@@ -38,73 +97,27 @@ bool ksu_queue_work(struct work_struct *work)
 #endif
 
 #if defined(CONFIG_KSU_KRETPROBES_SUCOMPAT)
-	#define FEAT_2 " +kretprobes_sucompat"
+	#define FEAT_2 " +rp_sucompat"
 #else
 	#define FEAT_2 ""
 #endif
-
-#if defined(CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED)
-	#define FEAT_3 " +throne_always_threaded"
+#if defined(CONFIG_KSU_EXTRAS)
+	#define FEAT_3 " +extras"
 #else
 	#define FEAT_3 ""
 #endif
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0) && !defined(CONFIG_KSU_LSM_SECURITY_HOOKS)
-	#define FEAT_4 " -lsm_hooks"
+#if defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
+	#define FEAT_4 " +sys_call_table_hook"
 #else
 	#define FEAT_4 ""
 #endif
-#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)) && defined(CONFIG_KSU_ALLOWLIST_WORKAROUND)
-	#define FEAT_5 " +allowlist_workaround"
+#if !defined(CONFIG_KSU_LSM_SECURITY_HOOKS)
+	#define FEAT_5 " -lsm_hooks"
 #else
 	#define FEAT_5 ""
 #endif
-#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)) && defined(KSU_HAS_MODERN_EXT4)
-	#define FEAT_6 " +ext4_unregister_sysfs"
-#else
-	#define FEAT_6 ""
-#endif
-#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)) && defined(KSU_HAS_PATH_UMOUNT)
-	#define FEAT_7 " +path_umount"
-#else
-	#define FEAT_7 ""
-#endif
-#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)) && defined(KSU_COPY_FROM_USER_NOFAULT)
-	#define FEAT_8 " +copy_from_user_nofault"
-#else
-	#define FEAT_8 ""
-#endif
-#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)) && defined(KSU_PROBE_USER_READ)
-	#define FEAT_9 " +probe_user_read"
-#else
-	#define FEAT_9 ""
-#endif
-#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)) && defined(KSU_NEW_KERNEL_READ)
-	#define FEAT_10 " +new_kernel_read"
-#else
-	#define FEAT_10 ""
-#endif
-#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)) && defined(KSU_NEW_KERNEL_WRITE)
-	#define FEAT_11 " +new_kernel_write"
-#else
-	#define FEAT_11 ""
-#endif
-#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)) && defined(KSU_HAS_SELINUX_INODE)
-	#define FEAT_12 " +selinux_inode"
-#else
-	#define FEAT_12 ""
-#endif
-#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0)) && defined(KSU_HAS_FOP_READ_ITER)
-	#define FEAT_13 " +read_iter"
-#else
-	#define FEAT_13 ""
-#endif
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 11, 0) && defined(KSU_HAS_ITERATE_DIR)
-	#define FEAT_14 " +iterate_dir"
-#else
-	#define FEAT_14 ""
-#endif
 
-#define EXTRA_FEATURES FEAT_1 FEAT_2 FEAT_3 FEAT_4 FEAT_5 FEAT_6 FEAT_7 FEAT_8 FEAT_9 FEAT_10 FEAT_11 FEAT_12 FEAT_13 FEAT_14
+#define EXTRA_FEATURES FEAT_1 FEAT_2 FEAT_3 FEAT_4 FEAT_5
 
 int __init kernelsu_init(void)
 {
@@ -120,19 +133,37 @@ int __init kernelsu_init(void)
 	pr_alert("*************************************************************");
 #endif
 
-	ksu_core_init();
+	ksu_cred = prepare_creds();
+	if (!ksu_cred) {
+		pr_err("prepare cred failed!\n");
+	}
 
-	ksu_workqueue = alloc_ordered_workqueue("kernelsu_work_queue", 0);
+	ksu_feature_init();
+
+	ksu_supercalls_init();
+
+	ksu_sucompat_init(); // so the feature is registered
+
+	ksu_core_init();
 
 	ksu_allowlist_init();
 
 	ksu_throne_tracker_init();
 
-#ifdef CONFIG_KSU_KRETPROBES_SUCOMPAT	
-	rp_sucompat_init();
+	ksu_ksud_init();
+
+	ksu_file_wrapper_init();
+
+#ifdef CONFIG_KSU_TAMPER_SYSCALL_TABLE
+	ksu_syscall_table_hook_init();
 #endif
+
 #ifdef CONFIG_KSU_KPROBES_KSUD
 	kp_ksud_init();
+#endif
+
+#ifdef CONFIG_KSU_EXTRAS
+	ksu_avc_spoof_init(); // so the feature is registered
 #endif
 
 	return 0;
@@ -144,8 +175,11 @@ void kernelsu_exit(void)
 
 	ksu_throne_tracker_exit();
 
-	destroy_workqueue(ksu_workqueue);
+	ksu_feature_exit();
 
+	if (ksu_cred) {
+		put_cred(ksu_cred);
+	}
 }
 
 module_init(kernelsu_init);
@@ -155,6 +189,9 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("weishu");
 MODULE_DESCRIPTION("Android KernelSU");
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
+MODULE_IMPORT_NS("VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver");
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
 MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);
 #endif
+

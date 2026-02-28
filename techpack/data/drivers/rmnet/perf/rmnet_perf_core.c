@@ -147,7 +147,7 @@ void rmnet_perf_core_set_ingress_hook(void)
 {
 	if (rmnet_perf_core_is_deag_mode()) {
 		RCU_INIT_POINTER(rmnet_perf_deag_entry,
-				 rmnet_perf_core_deaggregate);
+				 (void*)rmnet_perf_core_deaggregate);
 		RCU_INIT_POINTER(rmnet_perf_desc_entry, NULL);
 	} else {
 		RCU_INIT_POINTER(rmnet_perf_deag_entry, NULL);
@@ -1017,7 +1017,7 @@ out:
  * Return:
  *		- void
  **/
-void rmnet_perf_core_deaggregate(struct sk_buff *skb,
+int rmnet_perf_core_deaggregate(struct sk_buff *skb,
 				 struct rmnet_port *port)
 {
 	struct rmnet_perf *perf;
@@ -1061,4 +1061,6 @@ void rmnet_perf_core_deaggregate(struct sk_buff *skb,
 	rmnet_perf_core_pre_ip_count += co;
 	rmnet_perf_core_chain_count[chain_count]++;
 	rmnet_perf_core_release_lock();
+
+	return 0;
 }

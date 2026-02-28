@@ -7,286 +7,192 @@
 #include <linux/kthread.h>
 #include <linux/sched.h>
 
-#include "arch.h"
-#include "klog.h"
-#include "ksud.h"
-#include "kernel_compat.h"
-
 static struct task_struct *unregister_thread;
 
-#if 0
-static int sys_execve_handler_pre(struct kprobe *p, struct pt_regs *regs)
+// sys_newfstat rp
+// upstream: https://github.com/tiann/KernelSU/commit/df640917d11dd0eff1b34ea53ec3c0dc49667002
+
+// this is a bit different from copy_from_user_retry
+// here we just disable preempt and try nofault again
+// we use this inside context that can't sleep
+static long ksu_copy_from_user_nofault_retry(void *to, const void __user *from, unsigned long count)
 {
-	/*
-	asmlinkage int sys_execve(const char __user *filenamei,
-				  const char __user *const __user *argv,
-				  const char __user *const __user *envp, struct pt_regs *regs)
-	*/
-	struct pt_regs *real_regs = PT_REAL_REGS(regs);
-	const char __user *filename_user = (const char __user *)PT_REGS_PARM1(real_regs);
-	const char __user *const __user *__argv = (const char __user *const __user *)PT_REGS_PARM2(real_regs);
-	const char __user *const __user *__envp = (const char __user *const __user *)PT_REGS_PARM3(real_regs);
+	long ret = copy_from_user_nofault(to, from, count);
+	if (likely(!ret))
+		return ret;
 
-	char path[32];
+	preempt_disable();
+	ret = copy_from_user_nofault(to, from, count);
+	preempt_enable();
 
-	if (!filename_user)
-		return 0;
-
-// filename stage
-	if (ksu_copy_from_user_retry(path, filename_user, sizeof(path)))
-		return 0;
-
-	path[sizeof(path) - 1] = '\0';
-
-	// not /system/bin/init, not /init, not /system/bin/app_process (64/32 thingy)
-	// we dont care !!
-	if (likely(strcmp(path, "/system/bin/init") && strcmp(path, "/init")
-		&& !strstarts(path, "/system/bin/app_process") ))
-		return 0;
-
-// argv stage
-	char argv1[32] = {0};
-	// memzero_explicit(argv1, 32);
-	if (__argv) {
-		const char __user *arg1_user = NULL;
-		// grab argv[1] pointer
-		// this looks like
-		/* 
-		 * 0x1000 ./program << this is __argv
-		 * 0x1001 -o 
-		 * 0x1002 arg
-		*/
-		if (ksu_copy_from_user_retry(&arg1_user, __argv + 1, sizeof(arg1_user)))
-			goto no_argv1; // copy argv[1] pointer fail, probably no argv1 !!
-
-		if (arg1_user)
-			ksu_copy_from_user_retry(argv1, arg1_user, sizeof(argv1));
-	}
-
-no_argv1:
-	argv1[sizeof(argv1) - 1] = '\0';
-
-// envp stage
-	#define ENVP_MAX 256
-	char envp[ENVP_MAX] = {0};
-	char *dst = envp;
-	size_t envp_len = 0;
-	int i = 0; // to track user pointer offset from __envp
-
-	// memzero_explicit(envp, ENVP_MAX);
-
-	if (__envp) {
-		do {
-			const char __user *env_entry_user = NULL;
-			// this is also like argv above
-			/*
-			 * 0x1001 PATH=/bin
-			 * 0x1002 VARIABLE=value
-			 * 0x1002 some_more_env_var=1
-			 */
-
-			// check if pointer exists
-			if (ksu_copy_from_user_retry(&env_entry_user, __envp + i, sizeof(env_entry_user)))
-				break; 
-
-			// check if no more env entry
-			if (!env_entry_user)
-				break; 
-			
-			// probably redundant to while condition but ok
-			if (envp_len >= ENVP_MAX - 1)
-				break;
-
-			// copy strings from env_entry_user pointer that we collected
-			// also break if failed
-			if (ksu_copy_from_user_retry(dst, env_entry_user, ENVP_MAX - envp_len))
-				break;
-
-			// get the length of that new copy above
-			// get lngth of dst as far as ENVP_MAX - current collected envp_len
-			size_t len = strnlen(dst, ENVP_MAX - envp_len);
-			if (envp_len + len + 1 > ENVP_MAX)
-				break; // if more than 255 bytes, bail
-
-			dst[len] = '\0';
-			// collect total number of copied strings
-			envp_len = envp_len + len + 1;
-			// increment dst address since we need to put something on next iter
-			dst = dst + len + 1;
-			// pointer walk, __envp + i
-			i++;
-		} while (envp_len < ENVP_MAX);
-	}
-
-	/*
-	at this point, we shoul've collected envp from
-		* 0x1001 PATH=/bin
-		* 0x1002 VARIABLE=value
-		* 0x1002 some_more_env_var=1
-	to
-		* 0x1234 PATH=/bin\0VARIABLE=value\0some_more_env_var=1\0\0\0\0
-	*/
-
-	envp[ENVP_MAX - 1] = '\0';
-
-	return ksu_handle_bprm_ksud(path, argv1, envp, envp_len);
+	return ret;
 }
-static struct kprobe sys_execve_kp = {
-	.symbol_name = SYS_EXECVE_SYMBOL,
-	.pre_handler = sys_execve_handler_pre,
+
+static int sys_newfstat_handler_pre(struct kretprobe_instance *p, struct pt_regs *regs)
+{
+	struct pt_regs *real_regs = PT_REAL_REGS(regs);
+	unsigned int fd = PT_REGS_PARM1(real_regs);
+	void *statbuf = PT_REGS_PARM2(real_regs);
+	*(void **)&p->data = NULL;
+
+	if (!is_init(get_current_cred()))
+		return 0;
+
+	struct file *file = fget(fd);
+	if (!file)
+		return 0;
+
+	if (is_init_rc(file)) {
+		pr_info("kp_ksud: newfstat: stat init.rc \n");
+		fput(file);
+		*(void **)&p->data = statbuf;
+		return 0;
+	}
+	fput(file);
+
+	return 0;
+}
+
+static int sys_newfstat_handler_post(struct kretprobe_instance *p, struct pt_regs *regs)
+{
+	void __user *statbuf = *(void **)&p->data;
+	if (!statbuf)
+		return 0;
+
+	void __user *st_size_ptr = statbuf + offsetof(struct stat, st_size);
+	long size, new_size;
+
+	if (ksu_copy_from_user_nofault_retry(&size, st_size_ptr, sizeof(long))) {
+		pr_info("kp_ksud: newfstat: read statbuf 0x%lx failed \n", (unsigned long)st_size_ptr);
+		return 0;
+	}
+
+	new_size = size + ksu_rc_len;
+	pr_info("kp_ksud: newfstat: adding ksu_rc_len: %ld -> %ld \n", size, new_size);
+
+	// I do NOT think this matters much for now, we can use copy_to_user
+	// if SHTF then we backport cope_to_user_nofault
+	if (!copy_to_user(st_size_ptr, &new_size, sizeof(long)))
+		pr_info("kp_ksud: newfstat: added ksu_rc_len \n");
+	else
+		pr_info("kp_ksud: newfstat: add ksu_rc_len failed: statbuf 0x%lx \n", (unsigned long)st_size_ptr);
+
+	return 0;
+}
+
+static struct kretprobe sys_newfstat_rp = {
+	.kp.symbol_name = SYS_NEWFSTAT_SYMBOL,
+	.entry_handler = sys_newfstat_handler_pre,
+	.handler = sys_newfstat_handler_post,
+	.data_size = sizeof(void *),
+};
+
+#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
+static int sys_fstat64_handler_pre(struct kretprobe_instance *p, struct pt_regs *regs)
+{
+	struct pt_regs *real_regs = PT_REAL_REGS(regs);
+	unsigned long fd = PT_REGS_PARM1(real_regs); // long, but I don't think it matters.
+	void *statbuf = PT_REGS_PARM2(real_regs);
+	*(void **)&p->data = NULL;
+
+	if (!is_init(get_current_cred()))
+		return 0;
+
+	struct file *file = fget(fd);
+	if (!file)
+		return 0;
+
+	if (is_init_rc(file)) {
+		pr_info("kp_ksud: fstat64: stat init.rc \n");
+		fput(file);
+		*(void **)&p->data = statbuf;
+		return 0;
+	}
+	fput(file);
+
+	return 0;
+}
+
+static int sys_fstat64_handler_post(struct kretprobe_instance *p, struct pt_regs *regs)
+{
+	void __user *statbuf = *(void **)&p->data;
+	if (!statbuf)
+		return 0;
+
+	// compat_stat
+	void __user *st_size_ptr = statbuf + offsetof(struct stat64, st_size);
+	long size, new_size;
+
+	if (ksu_copy_from_user_nofault_retry(&size, st_size_ptr, sizeof(long long))) {
+		pr_info("kp_ksud: fstat64: read statbuf 0x%lx failed \n", (unsigned long)st_size_ptr);
+		return 0;
+	}
+
+	new_size = size + ksu_rc_len;
+	pr_info("kp_ksud: fstat64: adding ksu_rc_len: %ld -> %ld \n", size, new_size);
+
+	if (!copy_to_user(st_size_ptr, &new_size, sizeof(long)))
+		pr_info("kp_ksud: fstat64: added ksu_rc_len \n");
+	else
+		pr_info("kp_ksud: fstat64: add ksu_rc_len failed: statbuf 0x%lx \n", (unsigned long)st_size_ptr);
+
+	return 0;
+}
+
+static struct kretprobe sys_fstat64_rp = {
+	.kp.symbol_name = SYS_FSTAT64_SYMBOL,
+	.entry_handler = sys_fstat64_handler_pre,
+	.handler = sys_fstat64_handler_post,
+	.data_size = sizeof(void *),
 };
 #endif
 
-// vfs_read
-extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr,
-			size_t *count_ptr, loff_t **pos);
+#ifndef CONFIG_KSU_TAMPER_SYSCALL_TABLE
+// sys_reboot
+extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
 
-static int vfs_read_handler_pre(struct kprobe *p, struct pt_regs *regs)
+static int sys_reboot_handler_pre(struct kprobe *p, struct pt_regs *regs)
 {
-	struct file **file_ptr = (struct file **)&PT_REGS_PARM1(regs);
-	char __user **buf_ptr = (char **)&PT_REGS_PARM2(regs);
-	size_t *count_ptr = (size_t *)&PT_REGS_PARM3(regs);
-	loff_t **pos_ptr = (loff_t **)&PT_REGS_CCALL_PARM4(regs);
+	struct pt_regs *real_regs = PT_REAL_REGS(regs);
+	int magic1 = (int)PT_REGS_PARM1(real_regs);
+	int magic2 = (int)PT_REGS_PARM2(real_regs);
+	int cmd = (int)PT_REGS_PARM3(real_regs);
+	void __user **arg = (void __user **)&PT_REGS_SYSCALL_PARM4(real_regs);
 
-	return ksu_handle_vfs_read(file_ptr, buf_ptr, count_ptr, pos_ptr);
+	return ksu_handle_sys_reboot(magic1, magic2, cmd, arg);
 }
 
-static struct kprobe vfs_read_kp = {
-	.symbol_name = "vfs_read",
-	.pre_handler = vfs_read_handler_pre,
+static struct kprobe sys_reboot_kp = {
+	.symbol_name = SYS_REBOOT_SYMBOL,
+	.pre_handler = sys_reboot_handler_pre,
 };
-
-// input_event
-extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);
-
-static int input_handle_event_handler_pre(struct kprobe *p, struct pt_regs *regs)
-{
-	unsigned int *type = (unsigned int *)&PT_REGS_PARM2(regs);
-	unsigned int *code = (unsigned int *)&PT_REGS_PARM3(regs);
-	int *value = (int *)&PT_REGS_CCALL_PARM4(regs);
-
-	return ksu_handle_input_handle_event(type, code, value);
-
-};
-
-static struct kprobe input_event_kp = {
-	.symbol_name = "input_event",
-	.pre_handler = input_handle_event_handler_pre,
-};
-
-// key_permission
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) || defined(CONFIG_KSU_ALLOWLIST_WORKAROUND)
-static int key_permission_handler_pre(struct kprobe *p, struct pt_regs *regs)
-{
-	const struct cred *cred = (const struct cred *)PT_REGS_PARM2(regs);
-
-	if (init_session_keyring != NULL) {
-		return 0;
-	}
-	if (strcmp(current->comm, "init")) {
-		// we are only interested in `init` process
-		return 0;
-	}
-	init_session_keyring = cred->session_keyring;
-	pr_info("kernel_compat: got init_session_keyring\n");
-	return 0;
-};
-
-static struct kprobe key_permission_kp = {
-	.symbol_name = "key_task_permission",
-	.pre_handler = key_permission_handler_pre,
-};
-#endif // key_permission
-
-// security_bounded_transition
-#if defined(CONFIG_KRETPROBES) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
-#include "avc_ss.h"
-#include "selinux/selinux.h"
-// int security_bounded_transition(u32 old_sid, u32 new_sid)
-static int bounded_transition_entry_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
-{
-	// grab sids on entry
-	u32 *sid = (u32 *)ri->data;
-	sid[0] = PT_REGS_PARM1(regs);  // old_sid
-	sid[1] = PT_REGS_PARM2(regs);  // new_sid
-	return 0;
-}
-
-static int bounded_transition_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
-{
-	u32 *sid = (u32 *)ri->data;
-	u32 old_sid = sid[0];
-	u32 new_sid = sid[1];
-
-	u32 init_sid, su_sid;
-	int error;
-
-	if (!ss_initialized)
-		return 0;
-
-	error = security_secctx_to_secid("u:r:init:s0", strlen("u:r:init:s0"), &init_sid);
-	if (error) {
-		pr_info("kp_ksud: cannot get sid of init context, err %d\n", error);
-		return 0;
-	}
-
-	error = security_secctx_to_secid("u:r:su:s0", strlen("u:r:su:s0"), &su_sid);
-	if (error) {
-		pr_info("kp_ksud: cannot get sid of su context, err %d\n", error);
-		return 0;
-	}
-
-	// so if old sid is 'init' and trying to transition to a new sid of 'su'
-	// force the function to return 0 
-	if (old_sid == init_sid && new_sid == su_sid) {
-		pr_info("kp_ksud: security_bounded_transition: allowing init -> su\n");
-		PT_REGS_RC(regs) = 0;  // make the original func return 0
-	}
-
-	return 0;
-}
-
-static struct kretprobe bounded_transition_rp = {
-	.kp.symbol_name = "security_bounded_transition",
-	.handler = bounded_transition_ret_handler,
-	.entry_handler = bounded_transition_entry_handler,
-	.data_size = sizeof(u32) * 2, // need to keep 2x u32's, one per sid
-	.maxactive = 20,
-};
-#endif // security_bounded_transition
-
-static void unregister_kprobe_logged(struct kprobe *kp)
-{
-	const char *symbol_name = kp->symbol_name;
-	if (!kp->addr) {
-		pr_info("unregister_kprobe: %s not registered in the first place!\n", symbol_name);
-		return;
-	}
-	unregister_kprobe(kp); // this fucking shit has no return code
-	pr_info("kp_ksud: unregister kprobe: %s ret: ??\n", symbol_name);
-}
+#endif
 
 static int unregister_kprobe_function(void *data)
 {
+loop_start:
+
+	msleep(1000);
+
+	if ((volatile bool)ksu_execveat_hook)
+		goto loop_start;
+
 	pr_info("kp_ksud: unregistering kprobes...\n");
 
-#if defined(CONFIG_KRETPROBES) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
-	unregister_kretprobe(&bounded_transition_rp);
-	pr_info("kp_ksud: unregister kretprobe: security_bounded_transition ret: ??\n");
+	unregister_kretprobe(&sys_newfstat_rp);
+	pr_info("kp_ksud: unregister sys_newfstat_rp!\n");
+
+#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
+	unregister_kretprobe(&sys_fstat64_rp);
+	pr_info("kp_ksud: unregister sys_fstat64_rp!\n");
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) || defined(CONFIG_KSU_ALLOWLIST_WORKAROUND)
-	unregister_kprobe_logged(&key_permission_kp);
-#endif
+	unregister_thread = NULL;
 
-	unregister_kprobe_logged(&input_event_kp);
-	//unregister_kprobe_logged(&sys_execve_kp);
-	unregister_kprobe_logged(&vfs_read_kp);
-	
 	return 0;
 }
 
-void unregister_kprobe_thread()
+static void unregister_kprobe_thread()
 {
 	unregister_thread = kthread_run(unregister_kprobe_function, NULL, "kprobe_unregister");
 	if (IS_ERR(unregister_thread)) {
@@ -295,26 +201,21 @@ void unregister_kprobe_thread()
 	}
 }
 
-static void register_kprobe_logged(struct kprobe *kp)
+static void kp_ksud_init()
 {
-	int ret;
-	ret = register_kprobe(kp);
-	pr_info("kp_ksud: register kprobe: %s ret: %d\n", kp->symbol_name, ret);
 
-}
-
-void kp_ksud_init()
-{
-	register_kprobe_logged(&vfs_read_kp);
-	register_kprobe_logged(&input_event_kp);
-	//register_kprobe_logged(&sys_execve_kp);
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) || defined(CONFIG_KSU_ALLOWLIST_WORKAROUND)
-	register_kprobe_logged(&key_permission_kp);
+#ifndef CONFIG_KSU_TAMPER_SYSCALL_TABLE
+	int ret = register_kprobe(&sys_reboot_kp); // dont unreg this one
+	pr_info("kp_ksud: sys_reboot_kp: %d\n", ret);
 #endif
 
-#if defined(CONFIG_KRETPROBES) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
-	int ret = register_kretprobe(&bounded_transition_rp);
-	pr_info("kp_ksud: register kretprobe: security_bounded_transition ret: %d\n", ret);
+	int ret2 = register_kretprobe(&sys_newfstat_rp);
+	pr_info("kp_ksud: sys_newfstat_rp: %d\n", ret2);
+
+#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
+	int ret3 = register_kretprobe(&sys_fstat64_rp);
+	pr_info("kp_ksud: sys_fstat64_rp: %d\n", ret3);
 #endif
+
+	unregister_kprobe_thread();
 }

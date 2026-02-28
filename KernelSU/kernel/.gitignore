@@ -18,3 +18,5 @@ libs/
 obj/
 
 CLAUDE.md
+.ddk-version
+.vscode/settings.json
