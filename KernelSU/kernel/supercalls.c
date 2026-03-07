@@ -538,7 +538,7 @@ static int add_try_umount(void __user *arg)
 			new_entry->umountable = kstrdup(buf, GFP_KERNEL);
 			if (!new_entry->umountable) {
 				kfree(new_entry);
-				return -1;
+				return -ENOMEM;
 			}
 
 			down_write(&mount_list_lock);
@@ -551,7 +551,7 @@ static int add_try_umount(void __user *arg)
 					up_write(&mount_list_lock);
 					kfree(new_entry->umountable);
 					kfree(new_entry);
-					return -1;
+					return -EEXIST;
 				}
 			}
 
@@ -841,8 +841,10 @@ int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user 
 		}
 
 		// so user can reset
-		if (!strcmp(release_buf, "default") || !strcmp(version_buf, "default") ) {
+		if (!strcmp(release_buf, "default")) {
 			memcpy(release_buf, original_release_buf, sizeof(release_buf));
+		}
+		if (!strcmp(version_buf, "default")) {
 			memcpy(version_buf, original_version_buf, sizeof(version_buf));
 		}
 

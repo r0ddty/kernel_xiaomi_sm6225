@@ -81,11 +81,11 @@ static __always_inline bool is_su_allowed(const void **ptr_to_check)
 		return false;
 
 	// first check the pointer-to-pointer
-	if (unlikely(!(volatile void *)ptr_to_check))
+	if (unlikely(!ptr_to_check))
 		return false;
 
 	// now dereference pointer-to-pointer to check actual pointer
-	if (unlikely(!(volatile void *)*ptr_to_check))
+	if (unlikely(!*ptr_to_check))
 		return false;
 
 	return true;

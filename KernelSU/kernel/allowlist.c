@@ -34,31 +34,19 @@ static int allow_list_pointer __read_mostly = 0;
 
 static void remove_uid_from_arr(uid_t uid)
 {
-	int *temp_arr;
-	int i, j;
-
-	if (allow_list_pointer == 0)
-		return;
-
-	temp_arr = kzalloc(sizeof(allow_list_arr), GFP_KERNEL);
-	if (temp_arr == NULL) {
-		pr_err("%s: unable to allocate memory\n", __func__);
-		return;
+	int i;
+	for (i = 0; i < allow_list_pointer; i++) {
+		if (allow_list_arr[i] == uid) {
+			int remaining = allow_list_pointer - 1 - i;
+			if (remaining > 0) {
+				memmove(&allow_list_arr[i], &allow_list_arr[i + 1],
+						remaining * sizeof(allow_list_arr[0]));
+			}
+			allow_list_pointer--;
+			allow_list_arr[allow_list_pointer] = -1;
+			return;
+		}
 	}
-
-	for (i = j = 0; i < allow_list_pointer; i++) {
-		if (allow_list_arr[i] == uid)
-			continue;
-		temp_arr[j++] = allow_list_arr[i];
-	}
-
-	allow_list_pointer = j;
-
-	for (; j < ARRAY_SIZE(allow_list_arr); j++)
-		temp_arr[j] = -1;
-
-	memcpy(&allow_list_arr, temp_arr, PAGE_SIZE);
-	kfree(temp_arr);
 }
 
 static void init_default_profiles()
@@ -91,8 +79,6 @@ static uint8_t allow_list_bitmap[PAGE_SIZE] __read_mostly __aligned(PAGE_SIZE);
 
 #define KERNEL_SU_ALLOWLIST "/data/adb/ksu/.allowlist"
 
-static struct task_struct *allowlist_thread;
-
 void ksu_persistent_allow_list(void);
 
 void ksu_show_allow_list(void)
@@ -109,8 +95,7 @@ void ksu_show_allow_list(void)
 
 #ifdef CONFIG_KSU_DEBUG
 static void ksu_grant_root_to_shell()
-{
-	struct app_profile profile = {
+{	struct app_profile profile = {
 		.version = KSU_APP_PROFILE_VER,
 		.allow_su = true,
 		.current_uid = 2000,
@@ -415,14 +400,12 @@ void ksu_persistent_allow_list_fn()
 		goto close_file;
 	}
 
-	mutex_lock(&allowlist_mutex);
 	list_for_each_entry (p, &allow_list, list) {
 		pr_info("save allow list, name: %s uid :%d, allow: %d\n",
 				p->profile.key, p->profile.current_uid, p->profile.allow_su);
 
 		ksu_kernel_write_compat(fp, &p->profile, sizeof(p->profile), &off);
 	}
-	mutex_unlock(&allowlist_mutex);
 
 close_file:
 	filp_close(fp, 0);
@@ -436,26 +419,26 @@ static int persistent_allow_list_pre(void *data)
 {
 	pr_info("ksu_persistent_allow_list_fn: pid: %d started\n", current->pid);
 
+	// repurpose the mutex they were holding on ksu_persistent_allow_list_fn
+	// since all this does eventually is to call kernel_write
+	// we hit two birds in one stone. exclusive io + exclusive kthread
+	// there wont be a single instance lock, but for what we need, its finee
+	// we just let other threads stall.
+	// 'mutex-trylock-fail-then-return' is detrimental here
+	mutex_lock(&allowlist_mutex);
+
 	escape_to_root_forced(); // give permissions for everything
-	ksu_persistent_allow_list_fn();	
-	allowlist_thread = NULL;
-	smp_mb();
-	
+	ksu_persistent_allow_list_fn();
+
+	mutex_unlock(&allowlist_mutex);
+
 	pr_info("ksu_persistent_allow_list_fn: pid: %d exit\n", current->pid);
 	return 0;
 }
 
 void ksu_persistent_allow_list()
 {
-	smp_mb();
-	if (allowlist_thread != NULL)
-		return;
-
-	allowlist_thread = kthread_run(persistent_allow_list_pre, NULL, "allowlist");
-	if (IS_ERR(allowlist_thread)) {
-		allowlist_thread = NULL;
-		return;
-	}
+	kthread_run(persistent_allow_list_pre, NULL, "allowlist");
 }
 
 // we can leave this synchronous it seems

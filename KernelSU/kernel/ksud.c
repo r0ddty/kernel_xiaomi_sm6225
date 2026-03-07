@@ -334,7 +334,7 @@ static ssize_t read_iter_proxy(struct kiocb *iocb, struct iov_iter *to)
 	}
 append_ksu_rc:
 	// copy_to_iter returns the number of copied bytes
-	append_count = copy_to_iter(KERNEL_SU_RC + ksu_rc_pos, ksu_rc_len - ksu_rc_pos, to);
+	append_count = copy_to_iter((void *)KERNEL_SU_RC + ksu_rc_pos, ksu_rc_len - ksu_rc_pos, to);
 	if (!append_count) {
 		pr_info("read_iter_proxy: append error, totally appended %ld\n", ksu_rc_pos);
 	} else {
@@ -509,26 +509,6 @@ void ksu_handle_fstat64_ret(unsigned long *fd, struct stat64 __user **statbuf_pt
 	ksu_common_newfstat_ret(fd_long, (void **)statbuf_ptr, STAT_STAT64);
 }
 #endif
-
-#ifdef CONFIG_COMPAT // this one is wrong, only keeping it for people that picked it up
-void ksu_compat_newfstat_ret(unsigned int *fd, struct compat_stat __user **statbuf_ptr)
-{
-	return;
-}
-#endif
-
-// working dummies for manual hooks
-__attribute__((deprecated))
-int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos)
-{
-	return 0;
-}
-
-__attribute__((deprecated))
-int ksu_handle_sys_read(unsigned int fd, char __user **buf_ptr, size_t *count_ptr)
-{
-	return 0;
-}
 
 __attribute__((deprecated))
 int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value)

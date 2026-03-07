@@ -130,15 +130,6 @@ __weak int path_mount(const char *dev_name, struct path *path,
 }
 #endif
 
-static inline int ksu_access_ok(const void *addr, unsigned long size)
-{
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
-	return access_ok(addr, size);
-#else
-	return access_ok(VERIFY_READ, addr, size);
-#endif
-}
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0) 
 __weak long copy_from_user_nofault(void *dst, const void __user *src, size_t size)
 {
@@ -147,12 +138,14 @@ __weak long copy_from_user_nofault(void *dst, const void __user *src, size_t siz
 	mm_segment_t old_fs = get_fs();
 
 	set_fs(USER_DS);
-	// tweaked to use ksu_access_ok
-	if (ksu_access_ok(src, size)) {
-		pagefault_disable();
-		ret = __copy_from_user_inatomic(dst, src, size);
-		pagefault_enable();
-	}
+
+	// normally theres an access_ok check here
+	// but for what we use it, it will always be true.
+
+	pagefault_disable();
+	ret = __copy_from_user_inatomic(dst, src, size);
+	pagefault_enable();
+
 	set_fs(old_fs);
 
 	if (ret)

@@ -163,7 +163,7 @@ void search_manager(const char *path, int depth, struct list_head *uid_data)
 	unsigned long data_app_magic = 0;
 
 	// First depth
-	struct data_path data = { 0 };
+	struct data_path data = { };
 	strncpy(data.dirpath, path, DATA_PATH_LEN - 1 );
 	data.depth = depth;
 	list_add_tail(&data.list, &data_path_list);

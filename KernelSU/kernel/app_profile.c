@@ -156,22 +156,25 @@ static void escape_to_root(bool is_forced)
 	memcpy(&cred->cap_bset, &profile.capabilities.effective, sizeof(cred->cap_bset));
 
 	setup_groups(&profile, cred);
+	setup_selinux(profile.selinux_domain, cred);
 
 	commit_creds(cred);
 
-	if (!!!current->seccomp.mode)
-		goto setup_selinux;
-
-	disable_seccomp();
-
-setup_selinux:
-	setup_selinux(profile.selinux_domain);
+	if (!!current->seccomp.mode)
+		disable_seccomp();
 	
 	setup_mount_ns(profile.namespaces);
 }
 
 void escape_to_root_for_init(void) {
-	setup_selinux(KERNEL_SU_CONTEXT);
+	struct cred *cred = prepare_creds();
+	if (!cred) {
+        	pr_err("Failed to prepare init's creds!\n");
+        	return;
+	}
+
+	setup_selinux(KERNEL_SU_CONTEXT, cred);
+	commit_creds(cred);
 }
 
 void escape_with_root_profile(void)
