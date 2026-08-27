@@ -1,3 +1,16 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 \xx
+ *
+ * This file is a downstream extension and NOT affiliated, endorsed by,
+ * or maintained by the official KernelSU developers.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ */
+
 int ksu_inode_rename(struct inode *old_inode, struct dentry *old_dentry,
 			    struct inode *new_inode, struct dentry *new_dentry)
 {
@@ -34,6 +47,13 @@ int ksu_file_permission(struct file *file, int mask)
 #endif
 #endif
 
+	return 0;
+}
+
+// NOTE: 3-args only. arg1 not used on some kernels.
+int ksu_hide_setprocattr(const char *name, void *value, size_t size)
+{
+	ksu_hide_setprocattr_inline(name, value, size);
 	return 0;
 }
 

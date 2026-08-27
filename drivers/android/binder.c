@@ -56,6 +56,7 @@
 #include <linux/rbtree.h>
 #include <linux/sched/signal.h>
 #include <linux/sched/mm.h>
+#include <linux/oom.h>
 #include <linux/seq_file.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
@@ -631,6 +632,10 @@ static void binder_wakeup_thread_ilocked(struct binder_proc *proc,
 {
 	assert_spin_locked(&proc->inner_lock);
 
+	/* Force sync wakeup when the sender is a critical task */
+	if (task_is_critical())
+		sync = true;
+
 	if (thread) {
 		if (sync)
 			wake_up_interruptible_sync(&thread->wait);
@@ -860,7 +865,8 @@ static void binder_transaction_priority(struct binder_thread *thread,
 
 	t->set_priority_called = true;
 
-	if (!node->inherit_rt && is_rt_policy(desired.sched_policy)) {
+	if (!task_is_critical() &&
+	    !node->inherit_rt && is_rt_policy(desired.sched_policy)) {
 		desired.prio = NICE_TO_PRIO(0);
 		desired.sched_policy = SCHED_NORMAL;
 	}
@@ -899,7 +905,11 @@ static void binder_transaction_priority(struct binder_thread *thread,
 	}
 	spin_unlock(&thread->prio_lock);
 
-	binder_set_priority(thread, &desired);
+	if (task_is_critical())
+		binder_do_set_priority(thread, &desired, false);
+	else
+		binder_set_priority(thread, &desired);
+
 	trace_android_vh_binder_set_priority(t, task);
 }
 
@@ -1870,7 +1880,20 @@ static void binder_free_txn_fixups(struct binder_transaction *t)
 
 static void binder_free_transaction(struct binder_transaction *t)
 {
-	struct binder_proc *target_proc = t->to_proc;
+	struct binder_thread *target_thread;
+	struct binder_proc *target_proc;
+
+	spin_lock(&t->lock);
+	target_proc = t->to_proc;
+	target_thread = t->to_thread;
+	/*
+	 * Pin target_thread to keep target_proc alive. Undelivered
+	 * transactions with !target_thread are safe, as target_proc
+	 * can only be the current context there.
+	 */
+	if (target_thread)
+		atomic_inc(&target_thread->tmp_ref);
+	spin_unlock(&t->lock);
 
 	if (target_proc) {
 		binder_inner_proc_lock(target_proc);
@@ -1884,6 +1907,10 @@ static void binder_free_transaction(struct binder_transaction *t)
 			t->buffer->transaction = NULL;
 		binder_inner_proc_unlock(target_proc);
 	}
+
+	if (target_thread)
+		binder_thread_dec_tmpref(target_thread);
+
 	/*
 	 * If the transaction has no target_proc, then
 	 * t->buffer->transaction has already been cleared.

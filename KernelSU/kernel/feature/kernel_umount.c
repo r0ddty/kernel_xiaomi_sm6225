@@ -30,7 +30,7 @@ static inline void ksu_umount_mnt(const char *mnt, struct path *path, int flags)
 		pr_info("umount %s failed: %d\n", mnt, err);
 }
 
-static void try_umount(const char *mnt, int flags)
+static inline void try_umount(const char *mnt, int flags)
 {
 	struct path path;
 	int err = kern_path(mnt, 0, &path);
@@ -57,9 +57,6 @@ static inline int ksu_handle_umount(struct cred *new, const struct cred *old)
 
 	// if there isn't any module mounted, just ignore it!
 	if (!ksu_module_mounted)
-		return 0;
-
-	if (!ksu_cred)
 		return 0;
 
 	// There are 6 scenarios:
